@@ -1,0 +1,17 @@
+{
+  "name": "happy-farmer",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.16.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "dev:frontend": "pnpm --filter @happy-farmer/frontend dev",
+    "dev:backend": "pnpm --filter @happy-farmer/backend dev",
+    "build": "pnpm -r build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2"
+  }
+}
