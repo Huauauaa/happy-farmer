@@ -61,6 +61,34 @@ pnpm dev:frontend
 pnpm dev:backend
 ```
 
+## 数据库配置（MariaDB）
+
+后端商品查询默认使用 MariaDB，默认 JDBC 连接串为：
+
+```text
+jdbc:mariadb://localhost:3306/farmer?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8
+```
+
+可通过以下环境变量覆盖：
+
+- `DB_JDBC_URL`：JDBC 连接串（默认值如上）
+- `DB_USER`：数据库用户名（默认 `root`）
+- `DB_PASSWORD`：数据库密码（默认空字符串）
+- `PRODUCT_TABLE`：商品表名（默认 `products`）
+
+示例表结构（供搜索与详情接口使用）：
+
+```sql
+CREATE TABLE products (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  category VARCHAR(100) NOT NULL,
+  price DECIMAL(10, 2) NOT NULL,
+  stock INT NOT NULL DEFAULT 0,
+  description TEXT NOT NULL
+);
+```
+
 ## 接口说明
 
 ### `GET /api/health`
@@ -70,7 +98,8 @@ pnpm dev:backend
 ```json
 {
   "ok": true,
-  "service": "happy-farmer-backend"
+  "service": "happy-farmer-backend",
+  "database": "up"
 }
 ```
 
