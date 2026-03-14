@@ -69,6 +69,17 @@ pnpm dev:backend
 jdbc:mariadb://localhost:3306/farmer?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8
 ```
 
+建议在仓库根目录创建 `.env` 并写入数据库配置，示例：
+
+```dotenv
+DB_JDBC_URL=jdbc:mariadb://localhost:3306/farmer?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8
+DB_USER=root
+DB_PASSWORD=
+DB_CONNECTION_LIMIT=5
+```
+
+后端启动时会自动尝试读取 `.env`（当前工作目录、`apps/backend/.env`、仓库根目录 `.env`）。
+
 可通过以下环境变量覆盖：
 
 - `DB_JDBC_URL`：JDBC 连接串（默认值如上）

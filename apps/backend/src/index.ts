@@ -1,9 +1,28 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import cors from 'cors';
+import { config as loadDotenv } from 'dotenv';
 import express from 'express';
 import * as mariadb from 'mariadb';
 import type { PoolConnection } from 'mariadb';
+
+const currentFileDir = dirname(fileURLToPath(import.meta.url));
+const dotenvPaths = [
+  resolve(process.cwd(), '.env'),
+  resolve(currentFileDir, '..', '.env'),
+  resolve(currentFileDir, '..', '..', '..', '.env'),
+];
+const loadedDotenvPaths = new Set<string>();
+for (const envPath of dotenvPaths) {
+  if (loadedDotenvPaths.has(envPath) || !existsSync(envPath)) {
+    continue;
+  }
+  loadDotenv({ path: envPath, override: false });
+  loadedDotenvPaths.add(envPath);
+}
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
