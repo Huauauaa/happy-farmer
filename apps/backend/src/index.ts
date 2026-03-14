@@ -514,9 +514,20 @@ const ensureAppTables = async () => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
-    await connection.query(
-      `ALTER TABLE ${userTable} ADD COLUMN IF NOT EXISTS is_admin TINYINT(1) NOT NULL DEFAULT 0`,
-    );
+    const userIsAdminColumnRows = (await connection.query(
+      `
+        SELECT COUNT(1) AS total
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = ?
+          AND TABLE_NAME = ?
+          AND COLUMN_NAME = 'is_admin'
+      `,
+      [jdbcConfig.database, rawUserTableName],
+    )) as Array<{ total: string | number }>;
+
+    if (toNumber(userIsAdminColumnRows[0]?.total ?? 0) === 0) {
+      await connection.query(`ALTER TABLE ${userTable} ADD COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0`);
+    }
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS ${sessionTable} (
