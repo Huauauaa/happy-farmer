@@ -6,6 +6,7 @@ import {
   Input,
   InputNumber,
   List,
+  Menu,
   Modal,
   Pagination,
   Popconfirm,
@@ -172,6 +173,10 @@ type SystemLogResponse = {
   items: SystemLogItem[];
 };
 
+type AppPage = 'shop' | 'admin';
+
+type AdminMenuKey = 'category' | 'order' | 'product' | 'user' | 'system';
+
 const authTokenStorageKey = 'happy-farmer-token';
 
 const getStoredToken = (): string => {
@@ -205,6 +210,13 @@ const readErrorMessage = async (response: Response): Promise<string> => {
 };
 
 function App() {
+  const [currentPage, setCurrentPage] = useState<AppPage>(() => {
+    if (typeof window === 'undefined') {
+      return 'shop';
+    }
+    return window.location.hash === '#/admin' ? 'admin' : 'shop';
+  });
+  const [adminMenuKey, setAdminMenuKey] = useState<AdminMenuKey>('category');
   const [keyword, setKeyword] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [loading, setLoading] = useState(true);
@@ -1149,9 +1161,47 @@ function App() {
     setAuthMessage('已退出登录');
   };
 
+  const navigateToAdminPage = () => {
+    if (typeof window !== 'undefined') {
+      window.location.hash = '/admin';
+    }
+    setAdminMenuKey('category');
+    setCurrentPage('admin');
+  };
+
+  const navigateToShopPage = () => {
+    if (typeof window !== 'undefined') {
+      window.location.hash = '/shop';
+    }
+    setCurrentPage('shop');
+  };
+
+  const scrollToAdminSection = (key: AdminMenuKey) => {
+    setAdminMenuKey(key);
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const target = window.document.getElementById(`admin-section-${key}`);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   useEffect(() => {
     void fetchCategories();
     void fetchProducts('', '');
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const syncPage = () => {
+      setCurrentPage(window.location.hash === '#/admin' ? 'admin' : 'shop');
+    };
+    syncPage();
+    window.addEventListener('hashchange', syncPage);
+    return () => {
+      window.removeEventListener('hashchange', syncPage);
+    };
   }, []);
 
   useEffect(() => {
@@ -1253,20 +1303,60 @@ function App() {
   const pagedAdminProducts = sortedAdminProducts.slice(pageStart(adminProductPage), pageStart(adminProductPage) + adminPageSize);
   const pagedAdminOrders = sortedAdminOrders.slice(pageStart(adminOrderPage), pageStart(adminOrderPage) + adminPageSize);
   const pagedAdminUsers = sortedAdminUsers.slice(pageStart(adminUserPage), pageStart(adminUserPage) + adminPageSize);
+  const isAdminPage = currentPage === 'admin';
+  const adminMenuItems = [
+    { key: 'category', label: '分类管理' },
+    { key: 'order', label: '订单管理' },
+    { key: 'product', label: '商品管理' },
+    { key: 'user', label: '用户管理' },
+    { key: 'system', label: '系统管理' },
+  ];
 
   return (
     <main className="min-h-screen bg-slate-50 p-8">
-      <Card className="mx-auto max-w-5xl shadow-sm">
-        <Typography.Title level={2} style={{ marginTop: 0 }}>
-          Happy Farmer
-        </Typography.Title>
-        <Typography.Paragraph>
-          支持游客商品搜索，也支持用户注册登录、购物车、提交订单、支付订单与个人资料维护。
-        </Typography.Paragraph>
+      <Card className={`mx-auto shadow-sm ${isAdminPage ? 'max-w-7xl' : 'max-w-5xl'}`}>
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
+            <Typography.Title level={2} style={{ marginTop: 0, marginBottom: 0 }}>
+              {isAdminPage ? '后台管理' : 'Happy Farmer'}
+            </Typography.Title>
+            {isAdminPage ? (
+              <Button onClick={navigateToShopPage}>返回商城</Button>
+            ) : profile?.isAdmin ? (
+              <Button type="primary" onClick={navigateToAdminPage}>
+                进入后台管理
+              </Button>
+            ) : null}
+          </Space>
+          <Typography.Paragraph style={{ marginBottom: 0 }}>
+            {isAdminPage
+              ? '后台管理已整理为独立页面，左侧菜单用于快速跳转管理模块。'
+              : '支持游客商品搜索，也支持用户注册登录、购物车、提交订单、支付订单与个人资料维护。'}
+          </Typography.Paragraph>
+        </Space>
 
-        <Tabs
-          defaultActiveKey="products"
-          items={[
+        <div style={{ display: 'flex', gap: 16, marginTop: 16 }}>
+          {isAdminPage ? (
+            <Card
+              size="small"
+              style={{ width: 220, position: 'sticky', top: 24, alignSelf: 'flex-start', flexShrink: 0 }}
+              bodyStyle={{ padding: 8 }}
+            >
+              <Menu
+                mode="inline"
+                selectedKeys={[adminMenuKey]}
+                items={adminMenuItems}
+                onClick={({ key }) => scrollToAdminSection(key as AdminMenuKey)}
+              />
+            </Card>
+          ) : null}
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Tabs
+              defaultActiveKey={isAdminPage ? 'admin' : 'products'}
+              activeKey={isAdminPage ? 'admin' : undefined}
+              tabBarStyle={isAdminPage ? { display: 'none' } : undefined}
+              items={[
             {
               key: 'products',
               label: '搜索商品（游客可用）',
@@ -1651,7 +1741,7 @@ function App() {
 
                     <Row gutter={[16, 16]}>
                       <Col xs={24} lg={12}>
-                        <Card title="商品类别管理">
+                        <Card id="admin-section-category" title="商品类别管理">
                           <Space direction="vertical" size={12} style={{ width: '100%' }}>
                             <Space.Compact style={{ width: '100%' }}>
                               <Input
@@ -1716,7 +1806,7 @@ function App() {
                       </Col>
 
                       <Col xs={24} lg={12}>
-                        <Card title="订单管理">
+                        <Card id="admin-section-order" title="订单管理">
                           <Space direction="vertical" size={10} style={{ width: '100%' }}>
                             <Space wrap>
                               <Select
@@ -1777,7 +1867,7 @@ function App() {
                       </Col>
                     </Row>
 
-                    <Card title="商品管理">
+                    <Card id="admin-section-product" title="商品管理">
                       <Space direction="vertical" size={12} style={{ width: '100%' }}>
                         <Space wrap>
                           <Input
@@ -1924,7 +2014,7 @@ function App() {
                       </Space>
                     </Card>
 
-                    <Card title="用户管理">
+                    <Card id="admin-section-user" title="用户管理">
                       <Space direction="vertical" size={12} style={{ width: '100%' }}>
                         <Space>
                           <Input
@@ -2055,7 +2145,7 @@ function App() {
                       </Space>
                     </Card>
 
-                    <Row gutter={[16, 16]}>
+                    <Row id="admin-section-system" gutter={[16, 16]}>
                       <Col xs={24} lg={12}>
                         <Card title="系统管理（管理员改密）">
                           <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -2113,8 +2203,10 @@ function App() {
                   </Space>
                 ),
             },
-          ]}
-        />
+              ].filter((item) => (isAdminPage ? item.key === 'admin' : item.key !== 'admin'))}
+            />
+          </div>
+        </div>
       </Card>
 
       <Modal
