@@ -75,8 +75,14 @@ jdbc:mariadb://localhost:3306/farmer?useSSL=false&serverTimezone=Asia/Shanghai&c
 - `DB_USER`：数据库用户名（默认 `root`）
 - `DB_PASSWORD`：数据库密码（默认空字符串）
 - `PRODUCT_TABLE`：商品表名（默认 `products`）
+- `CATEGORY_TABLE`：商品分类表名（默认 `product_categories`）
+- `CART_TABLE`：购物车表名（默认 `cart_items`）
+- `ORDER_TABLE`：订单表名（默认 `orders`）
+- `ORDER_ITEM_TABLE`：订单明细表名（默认 `order_items`）
 - `USER_TABLE`：用户表名（默认 `users`）
 - `USER_SESSION_TABLE`：登录会话表名（默认 `user_sessions`）
+- `ADMIN_USERNAME`：默认管理员账号（默认 `admin`）
+- `ADMIN_PASSWORD`：默认管理员密码（默认 `admin123456`）
 
 示例表结构（供搜索与详情接口使用）：
 
@@ -102,6 +108,7 @@ CREATE TABLE users (
   nickname VARCHAR(128) NULL,
   phone VARCHAR(32) NULL,
   balance DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  is_admin TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -115,6 +122,41 @@ CREATE TABLE user_sessions (
   INDEX idx_user_sessions_expires_at (expires_at),
   CONSTRAINT fk_user_sessions_user
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE product_categories (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(100) NOT NULL UNIQUE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE cart_items (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  product_id VARCHAR(64) NOT NULL,
+  quantity INT NOT NULL,
+  UNIQUE KEY uniq_cart_user_product (user_id, product_id)
+);
+
+CREATE TABLE orders (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  order_no VARCHAR(40) NOT NULL UNIQUE,
+  user_id BIGINT NOT NULL,
+  total_amount DECIMAL(10, 2) NOT NULL,
+  status VARCHAR(20) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  paid_at DATETIME NULL
+);
+
+CREATE TABLE order_items (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  order_id BIGINT NOT NULL,
+  product_id VARCHAR(64) NOT NULL,
+  product_name VARCHAR(255) NOT NULL,
+  category VARCHAR(100) NOT NULL,
+  price DECIMAL(10, 2) NOT NULL,
+  quantity INT NOT NULL,
+  subtotal DECIMAL(10, 2) NOT NULL
 );
 ```
 
@@ -182,6 +224,10 @@ CREATE TABLE user_sessions (
 
 用户登录，成功后返回 `token`（Bearer Token）。
 
+### `POST /api/auth/logout`
+
+用户安全退出（清理当前 token 会话）。
+
 ### `GET /api/users/me`
 
 获取当前登录用户信息。请求头：
@@ -197,6 +243,57 @@ Authorization: Bearer <token>
 ### `PUT /api/users/me/password`
 
 修改当前用户密码。
+
+### `GET /api/cart`
+
+查看当前登录用户购物车。
+
+### `POST /api/cart/items`
+
+加入购物车。请求体示例：
+
+```json
+{
+  "productId": "p-1001",
+  "quantity": 1
+}
+```
+
+### `PUT /api/cart/items/:productId`
+
+更新购物车商品数量。
+
+### `DELETE /api/cart/items/:productId`
+
+从购物车删除商品。
+
+### `POST /api/orders/submit`
+
+提交购物车并生成订单编号（初始状态 `UNPAID`）。
+
+### `POST /api/orders/:orderNo/pay`
+
+支付订单：余额充足则扣减余额并完成支付，余额不足则返回失败。
+
+### `GET /api/orders`
+
+查询当前登录用户订单列表（含订单明细）。
+
+### `GET /api/orders/:orderNo`
+
+查询当前登录用户单个订单详情。
+
+### 管理员接口（需管理员 token）
+
+- `GET /api/admin/categories`：查询分类
+- `POST /api/admin/categories`：新增分类
+- `DELETE /api/admin/categories/:id`：删除分类（分类下有商品时禁止删除）
+- `GET /api/admin/products`：查询商品
+- `POST /api/admin/products`：新增商品（重复商品禁止新增）
+- `DELETE /api/admin/products/:id`：删除商品
+- `GET /api/admin/orders`：查询所有订单
+- `GET /api/admin/users`：查询用户
+- `PUT /api/admin/users/:id`：管理用户信息（昵称/手机号/余额/管理员角色）
 
 ## 业务功能介绍（需求）
 
@@ -281,4 +378,7 @@ pnpm build
 - 商品列表展示：分类、价格、库存信息
 - 商品详情查看：可查看商品编号、库存、描述等信息
 - 用户注册、登录、查看并更新个人资料、修改密码
-- 提供后端健康检查、商品接口与用户认证接口
+- 购物车：加入商品、修改数量、删除商品
+- 订单：提交订单生成订单号、支付订单、查看个人订单
+- 后台：分类管理、商品管理、订单管理、用户管理、系统安全退出
+- 提供后端健康检查、商品、用户、购物车、订单与后台管理接口

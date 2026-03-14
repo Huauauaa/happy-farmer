@@ -4,6 +4,7 @@ import {
   Col,
   Empty,
   Input,
+  InputNumber,
   List,
   Modal,
   Row,
@@ -44,6 +45,7 @@ type UserProfile = {
   nickname: string | null;
   phone: string | null;
   balance: number;
+  isAdmin: boolean;
   createdAt: string;
 };
 
@@ -64,6 +66,52 @@ type UpdateUserResponse = {
 
 type MessageResponse = {
   message: string;
+};
+
+type CartItem = {
+  productId: string;
+  name: string;
+  category: string;
+  price: number;
+  stock: number;
+  quantity: number;
+  subtotal: number;
+};
+
+type CartResponse = {
+  total: number;
+  totalAmount: number;
+  items: CartItem[];
+};
+
+type OrderItem = {
+  productId: string;
+  productName: string;
+  category: string;
+  price: number;
+  quantity: number;
+  subtotal: number;
+};
+
+type UserOrder = {
+  orderNo: string;
+  totalAmount: number;
+  status: string;
+  createdAt: string;
+  paidAt: string | null;
+  items: OrderItem[];
+};
+
+type OrderListResponse = {
+  total: number;
+  items: UserOrder[];
+};
+
+type SubmitOrderResponse = {
+  message: string;
+  orderNo: string;
+  totalAmount: number;
+  status: string;
 };
 
 const authTokenStorageKey = 'happy-farmer-token';
@@ -125,6 +173,15 @@ function App() {
   const [editPhone, setEditPhone] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartTotalAmount, setCartTotalAmount] = useState(0);
+  const [cartLoading, setCartLoading] = useState(false);
+  const [cartError, setCartError] = useState<string | null>(null);
+  const [cartMessage, setCartMessage] = useState<string | null>(null);
+  const [orderItems, setOrderItems] = useState<UserOrder[]>([]);
+  const [orderLoading, setOrderLoading] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [orderMessage, setOrderMessage] = useState<string | null>(null);
 
   const persistToken = (nextToken: string) => {
     setToken(nextToken);
@@ -230,6 +287,196 @@ function App() {
       setAuthError(null);
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : '未知错误');
+    }
+  };
+
+  const fetchCart = async (authToken: string) => {
+    setCartLoading(true);
+    setCartError(null);
+    try {
+      const response = await fetch('/api/cart', {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as CartResponse;
+      setCartItems(data.items);
+      setCartTotalAmount(data.totalAmount);
+    } catch (err) {
+      setCartError(err instanceof Error ? err.message : '未知错误');
+      setCartItems([]);
+      setCartTotalAmount(0);
+    } finally {
+      setCartLoading(false);
+    }
+  };
+
+  const fetchOrders = async (authToken: string) => {
+    setOrderLoading(true);
+    setOrderError(null);
+    try {
+      const response = await fetch('/api/orders', {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as OrderListResponse;
+      setOrderItems(data.items);
+    } catch (err) {
+      setOrderError(err instanceof Error ? err.message : '未知错误');
+      setOrderItems([]);
+    } finally {
+      setOrderLoading(false);
+    }
+  };
+
+  const handleAddToCart = async (productId: string) => {
+    if (token === '') {
+      setCartError('请先登录后再加入购物车');
+      return;
+    }
+    setCartLoading(true);
+    setCartError(null);
+    setCartMessage(null);
+    try {
+      const response = await fetch('/api/cart/items', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ productId, quantity: 1 }),
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as MessageResponse;
+      setCartMessage(data.message);
+      await fetchCart(token);
+    } catch (err) {
+      setCartError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setCartLoading(false);
+    }
+  };
+
+  const handleChangeCartQuantity = async (productId: string, quantity: number) => {
+    if (token === '') {
+      return;
+    }
+    setCartLoading(true);
+    setCartError(null);
+    setCartMessage(null);
+    try {
+      const response = await fetch(`/api/cart/items/${encodeURIComponent(productId)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ quantity }),
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as MessageResponse;
+      setCartMessage(data.message);
+      await fetchCart(token);
+      await fetchProducts(keyword, selectedCategory);
+    } catch (err) {
+      setCartError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setCartLoading(false);
+    }
+  };
+
+  const handleRemoveFromCart = async (productId: string) => {
+    if (token === '') {
+      return;
+    }
+    setCartLoading(true);
+    setCartError(null);
+    setCartMessage(null);
+    try {
+      const response = await fetch(`/api/cart/items/${encodeURIComponent(productId)}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as MessageResponse;
+      setCartMessage(data.message);
+      await fetchCart(token);
+    } catch (err) {
+      setCartError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setCartLoading(false);
+    }
+  };
+
+  const handleSubmitOrder = async () => {
+    if (token === '') {
+      return;
+    }
+    setOrderLoading(true);
+    setOrderError(null);
+    setOrderMessage(null);
+    try {
+      const response = await fetch('/api/orders/submit', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as SubmitOrderResponse;
+      setOrderMessage(`${data.message}，订单号：${data.orderNo}`);
+      await fetchCart(token);
+      await fetchOrders(token);
+    } catch (err) {
+      setOrderError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setOrderLoading(false);
+    }
+  };
+
+  const handlePayOrder = async (orderNo: string) => {
+    if (token === '') {
+      return;
+    }
+    setOrderLoading(true);
+    setOrderError(null);
+    setOrderMessage(null);
+    try {
+      const response = await fetch(`/api/orders/${encodeURIComponent(orderNo)}/pay`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as MessageResponse;
+      setOrderMessage(`${data.message}（订单号：${orderNo}）`);
+      await fetchOrders(token);
+      await fetchProfile(token);
+      await fetchProducts(keyword, selectedCategory);
+    } catch (err) {
+      setOrderError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setOrderLoading(false);
     }
   };
 
@@ -373,9 +620,24 @@ function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (token !== '') {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      } catch {
+        // Ignore network errors on logout cleanup.
+      }
+    }
     persistToken('');
     setProfile(null);
+    setCartItems([]);
+    setCartTotalAmount(0);
+    setOrderItems([]);
     setAuthError(null);
     setAuthMessage('已退出登录');
   };
@@ -388,9 +650,14 @@ function App() {
   useEffect(() => {
     if (token === '') {
       setProfile(null);
+      setCartItems([]);
+      setCartTotalAmount(0);
+      setOrderItems([]);
       return;
     }
     void fetchProfile(token);
+    void fetchCart(token);
+    void fetchOrders(token);
   }, [token]);
 
   useEffect(() => {
@@ -405,7 +672,7 @@ function App() {
           Happy Farmer
         </Typography.Title>
         <Typography.Paragraph>
-          支持游客商品搜索，也支持用户注册、登录、个人资料维护与密码修改。
+          支持游客商品搜索，也支持用户注册登录、购物车、提交订单、支付订单与个人资料维护。
         </Typography.Paragraph>
 
         <Tabs
@@ -458,6 +725,11 @@ function App() {
                       搜索失败：{error}
                     </Tag>
                   ) : null}
+                  {token === '' ? (
+                    <Tag color="default" style={{ marginBottom: 12 }}>
+                      登录后可将商品加入购物车
+                    </Tag>
+                  ) : null}
 
                   <List
                     loading={loading}
@@ -473,6 +745,14 @@ function App() {
                             onClick={() => void fetchProductDetail(product.id)}
                           >
                             查看详情
+                          </Button>,
+                          <Button
+                            key={`cart-${product.id}`}
+                            type="link"
+                            disabled={token === ''}
+                            onClick={() => void handleAddToCart(product.id)}
+                          >
+                            加入购物车
                           </Button>,
                         ]}
                       >
@@ -567,7 +847,7 @@ function App() {
                           <Typography.Text>
                             注册时间：{profile ? formatDateTime(profile.createdAt) : '-'}
                           </Typography.Text>
-                          <Button danger onClick={handleLogout}>
+                          <Button danger onClick={() => void handleLogout()}>
                             退出登录
                           </Button>
                         </Space>
@@ -617,6 +897,140 @@ function App() {
                   )}
                 </Space>
               ),
+            },
+            {
+              key: 'cart',
+              label: '购物车',
+              children:
+                token === '' ? (
+                  <Typography.Paragraph>请先登录后查看购物车。</Typography.Paragraph>
+                ) : (
+                  <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                    {cartError ? <Tag color="error">购物车操作失败：{cartError}</Tag> : null}
+                    {cartMessage ? <Tag color="success">{cartMessage}</Tag> : null}
+                    <Space>
+                      <Button loading={cartLoading} onClick={() => void fetchCart(token)}>
+                        刷新购物车
+                      </Button>
+                      <Button type="primary" loading={orderLoading} onClick={() => void handleSubmitOrder()}>
+                        提交订单
+                      </Button>
+                    </Space>
+                    <Typography.Text>
+                      当前共 {cartItems.length} 件商品，合计 ¥{cartTotalAmount.toFixed(2)}
+                    </Typography.Text>
+
+                    <List
+                      loading={cartLoading}
+                      locale={{ emptyText: <Empty description="购物车为空" /> }}
+                      dataSource={cartItems}
+                      renderItem={(item) => (
+                        <List.Item
+                          key={item.productId}
+                          actions={[
+                            <InputNumber
+                              key={`qty-${item.productId}`}
+                              min={1}
+                              max={Math.max(item.stock, 1)}
+                              value={item.quantity}
+                              onChange={(value) => {
+                                if (typeof value === 'number' && Number.isFinite(value)) {
+                                  void handleChangeCartQuantity(item.productId, value);
+                                }
+                              }}
+                            />,
+                            <Button
+                              key={`remove-${item.productId}`}
+                              danger
+                              type="link"
+                              onClick={() => void handleRemoveFromCart(item.productId)}
+                            >
+                              删除
+                            </Button>,
+                          ]}
+                        >
+                          <List.Item.Meta
+                            title={item.name}
+                            description={
+                              <Space size={8} wrap>
+                                <Tag color="blue">{item.category}</Tag>
+                                <Tag color="gold">单价 ¥{item.price.toFixed(2)}</Tag>
+                                <Tag color="green">数量 {item.quantity}</Tag>
+                                <Tag color="purple">小计 ¥{item.subtotal.toFixed(2)}</Tag>
+                              </Space>
+                            }
+                          />
+                        </List.Item>
+                      )}
+                    />
+                  </Space>
+                ),
+            },
+            {
+              key: 'orders',
+              label: '我的订单',
+              children:
+                token === '' ? (
+                  <Typography.Paragraph>请先登录后查看订单。</Typography.Paragraph>
+                ) : (
+                  <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                    {orderError ? <Tag color="error">订单操作失败：{orderError}</Tag> : null}
+                    {orderMessage ? <Tag color="success">{orderMessage}</Tag> : null}
+                    <Button loading={orderLoading} onClick={() => void fetchOrders(token)}>
+                      刷新订单
+                    </Button>
+
+                    <List
+                      loading={orderLoading}
+                      locale={{ emptyText: <Empty description="暂无订单" /> }}
+                      dataSource={orderItems}
+                      renderItem={(order) => (
+                        <List.Item
+                          key={order.orderNo}
+                          actions={
+                            order.status === 'UNPAID'
+                              ? [
+                                  <Button
+                                    key={`pay-${order.orderNo}`}
+                                    type="primary"
+                                    onClick={() => void handlePayOrder(order.orderNo)}
+                                  >
+                                    立即付款
+                                  </Button>,
+                                ]
+                              : []
+                          }
+                        >
+                          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                            <Space wrap>
+                              <Tag color="blue">订单号：{order.orderNo}</Tag>
+                              <Tag color={order.status === 'PAID' ? 'success' : 'warning'}>
+                                {order.status}
+                              </Tag>
+                              <Tag color="gold">金额 ¥{order.totalAmount.toFixed(2)}</Tag>
+                              <Tag color="default">创建于 {formatDateTime(order.createdAt)}</Tag>
+                            </Space>
+                            <List
+                              size="small"
+                              dataSource={order.items}
+                              renderItem={(item) => (
+                                <List.Item key={`${order.orderNo}-${item.productId}`}>
+                                  <Space size={8} wrap>
+                                    <Typography.Text>{item.productName}</Typography.Text>
+                                    <Tag color="blue">{item.category}</Tag>
+                                    <Tag color="gold">¥{item.price.toFixed(2)}</Tag>
+                                    <Tag color="green">x{item.quantity}</Tag>
+                                    <Tag color="purple">¥{item.subtotal.toFixed(2)}</Tag>
+                                  </Space>
+                                </List.Item>
+                              )}
+                            />
+                          </Space>
+                        </List.Item>
+                      )}
+                    />
+                  </Space>
+                ),
             },
           ]}
         />
