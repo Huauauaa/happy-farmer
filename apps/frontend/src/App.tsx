@@ -1,23 +1,11 @@
-import {
-  Button,
-  Card,
-  Col,
-  Empty,
-  Input,
-  InputNumber,
-  List,
-  Menu,
-  Modal,
-  Pagination,
-  Popconfirm,
-  Row,
-  Select,
-  Space,
-  Tabs,
-  Tag,
-  Typography,
-} from 'antd';
+import { Button, Card, Menu, Space, Tabs, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
+import AccountTab from './modules/account/AccountTab';
+import AdminTab from './modules/admin/AdminTab';
+import CartTab from './modules/cart/CartTab';
+import OrdersTab from './modules/orders/OrdersTab';
+import ProductDetailModal from './modules/products/ProductDetailModal';
+import ProductsTab from './modules/products/ProductsTab';
 
 type ProductSummary = {
   id: string;
@@ -1356,881 +1344,203 @@ function App() {
               defaultActiveKey={isAdminPage ? 'admin' : 'products'}
               activeKey={isAdminPage ? 'admin' : undefined}
               tabBarStyle={isAdminPage ? { display: 'none' } : undefined}
-              items={[
-            {
-              key: 'products',
-              label: '搜索商品（游客可用）',
-              children: (
-                <>
-                  <Space wrap style={{ width: '100%', marginBottom: 16 }}>
-                    <Select
-                      style={{ width: 200 }}
-                      value={selectedCategory}
-                      loading={categoryLoading}
-                      options={[
-                        { label: '全部分类', value: '' },
-                        ...categories.map((category) => ({
-                          label: category,
-                          value: category,
-                        })),
-                      ]}
-                      onChange={(nextCategory) => {
-                        setSelectedCategory(nextCategory);
-                        void fetchProducts(keyword, nextCategory);
-                      }}
-                    />
-                    <Input
-                      style={{ minWidth: 260, flex: 1 }}
-                      placeholder="请输入商品名称，例如：苹果"
-                      value={keyword}
-                      onChange={(event) => {
-                        setKeyword(event.target.value);
-                      }}
-                      onPressEnter={() => {
-                        void fetchProducts(keyword, selectedCategory);
-                      }}
-                    />
-                    <Button
-                      type="primary"
-                      loading={loading}
-                      onClick={() => void fetchProducts(keyword, selectedCategory)}
-                    >
-                      搜索
-                    </Button>
-                  </Space>
-
-                  {error ? (
-                    <Tag color="error" style={{ marginBottom: 12 }}>
-                      搜索失败：{error}
-                    </Tag>
-                  ) : null}
-                  {token === '' ? (
-                    <Tag color="default" style={{ marginBottom: 12 }}>
-                      登录后可将商品加入购物车
-                    </Tag>
-                  ) : null}
-
-                  <List
-                    loading={loading}
-                    locale={{ emptyText: <Empty description="未找到匹配商品" /> }}
-                    dataSource={products}
-                    renderItem={(product) => (
-                      <List.Item
-                        key={product.id}
-                        actions={[
-                          <Button
-                            key={`detail-${product.id}`}
-                            type="link"
-                            onClick={() => void fetchProductDetail(product.id)}
-                          >
-                            查看详情
-                          </Button>,
-                          <Button
-                            key={`cart-${product.id}`}
-                            type="link"
-                            disabled={token === ''}
-                            onClick={() => void handleAddToCart(product.id)}
-                          >
-                            加入购物车
-                          </Button>,
-                        ]}
-                      >
-                        <List.Item.Meta
-                          title={product.name}
-                          description={
-                            <Space size={8} wrap>
-                              <Tag color="blue">{product.category}</Tag>
-                              <Tag color="gold">¥{product.price.toFixed(2)}</Tag>
-                              <Tag color={product.stock > 0 ? 'green' : 'red'}>
-                                {product.stock > 0 ? `库存 ${product.stock}` : '缺货'}
-                              </Tag>
-                            </Space>
-                          }
-                        />
-                      </List.Item>
-                    )}
-                  />
-                </>
-              ),
-            },
-            {
-              key: 'account',
-              label: '用户中心',
-              children: (
-                <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                  {authError ? <Tag color="error">操作失败：{authError}</Tag> : null}
-                  {authMessage ? <Tag color="success">{authMessage}</Tag> : null}
-
-                  {token === '' ? (
-                    <Row gutter={[16, 16]}>
-                      <Col xs={24} md={12}>
-                        <Card title="用户登录">
-                          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                            <Input
-                              placeholder="账号"
-                              value={loginUsername}
-                              onChange={(event) => setLoginUsername(event.target.value)}
-                            />
-                            <Input.Password
-                              placeholder="密码"
-                              value={loginPassword}
-                              onChange={(event) => setLoginPassword(event.target.value)}
-                              onPressEnter={() => {
-                                void handleLogin();
-                              }}
-                            />
-                            <Button type="primary" loading={authLoading} onClick={() => void handleLogin()}>
-                              登录
-                            </Button>
-                          </Space>
-                        </Card>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Card title="用户注册">
-                          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                            <Input
-                              placeholder="账号（3-32位字母/数字/下划线）"
-                              value={registerUsername}
-                              onChange={(event) => setRegisterUsername(event.target.value)}
-                            />
-                            <Input.Password
-                              placeholder="密码（6-64位）"
-                              value={registerPassword}
-                              onChange={(event) => setRegisterPassword(event.target.value)}
-                            />
-                            <Input
-                              placeholder="昵称（可选）"
-                              value={registerNickname}
-                              onChange={(event) => setRegisterNickname(event.target.value)}
-                            />
-                            <Input
-                              placeholder="手机号（可选）"
-                              value={registerPhone}
-                              onChange={(event) => setRegisterPhone(event.target.value)}
-                            />
-                            <Button loading={authLoading} onClick={() => void handleRegister()}>
-                              注册
-                            </Button>
-                          </Space>
-                        </Card>
-                      </Col>
-                    </Row>
-                  ) : (
-                    <>
-                      <Card title="账号信息">
-                        <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                          <Typography.Text>账号：{profile?.username ?? '-'}</Typography.Text>
-                          <Typography.Text>昵称：{profile?.nickname ?? '未设置'}</Typography.Text>
-                          <Typography.Text>手机号：{profile?.phone ?? '未设置'}</Typography.Text>
-                          <Typography.Text>余额：¥{(profile?.balance ?? 0).toFixed(2)}</Typography.Text>
-                          <Typography.Text>
-                            注册时间：{profile ? formatDateTime(profile.createdAt) : '-'}
-                          </Typography.Text>
-                          <Button danger onClick={() => void handleLogout()}>
-                            退出登录
-                          </Button>
-                        </Space>
-                      </Card>
-
-                      <Row gutter={[16, 16]}>
-                        <Col xs={24} md={12}>
-                          <Card title="更新个人信息">
-                            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                              <Input
-                                placeholder="昵称"
-                                value={editNickname}
-                                onChange={(event) => setEditNickname(event.target.value)}
-                              />
-                              <Input
-                                placeholder="手机号"
-                                value={editPhone}
-                                onChange={(event) => setEditPhone(event.target.value)}
-                              />
-                              <Button type="primary" loading={authLoading} onClick={() => void handleUpdateProfile()}>
-                                保存资料
-                              </Button>
-                            </Space>
-                          </Card>
-                        </Col>
-                        <Col xs={24} md={12}>
-                          <Card title="修改密码">
-                            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                              <Input.Password
-                                placeholder="当前密码"
-                                value={currentPassword}
-                                onChange={(event) => setCurrentPassword(event.target.value)}
-                              />
-                              <Input.Password
-                                placeholder="新密码"
-                                value={newPassword}
-                                onChange={(event) => setNewPassword(event.target.value)}
-                              />
-                              <Button type="primary" loading={authLoading} onClick={() => void handleChangePassword()}>
-                                修改密码
-                              </Button>
-                            </Space>
-                          </Card>
-                        </Col>
-                      </Row>
-                    </>
-                  )}
-                </Space>
-              ),
-            },
-            {
-              key: 'cart',
-              label: '购物车',
-              children:
-                token === '' ? (
-                  <Typography.Paragraph>请先登录后查看购物车。</Typography.Paragraph>
-                ) : (
-                  <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                    {cartError ? <Tag color="error">购物车操作失败：{cartError}</Tag> : null}
-                    {cartMessage ? <Tag color="success">{cartMessage}</Tag> : null}
-                    <Space>
-                      <Button loading={cartLoading} onClick={() => void fetchCart(token)}>
-                        刷新购物车
-                      </Button>
-                      <Button type="primary" loading={orderLoading} onClick={() => void handleSubmitOrder()}>
-                        提交订单
-                      </Button>
-                    </Space>
-                    <Typography.Text>
-                      当前共 {cartItems.length} 件商品，合计 ¥{cartTotalAmount.toFixed(2)}
-                    </Typography.Text>
-
-                    <List
-                      loading={cartLoading}
-                      locale={{ emptyText: <Empty description="购物车为空" /> }}
-                      dataSource={cartItems}
-                      renderItem={(item) => (
-                        <List.Item
-                          key={item.productId}
-                          actions={[
-                            <InputNumber
-                              key={`qty-${item.productId}`}
-                              min={1}
-                              max={Math.max(item.stock, 1)}
-                              value={item.quantity}
-                              onChange={(value) => {
-                                if (typeof value === 'number' && Number.isFinite(value)) {
-                                  void handleChangeCartQuantity(item.productId, value);
-                                }
-                              }}
-                            />,
-                            <Button
-                              key={`remove-${item.productId}`}
-                              danger
-                              type="link"
-                              onClick={() => void handleRemoveFromCart(item.productId)}
-                            >
-                              删除
-                            </Button>,
-                          ]}
-                        >
-                          <List.Item.Meta
-                            title={item.name}
-                            description={
-                              <Space size={8} wrap>
-                                <Tag color="blue">{item.category}</Tag>
-                                <Tag color="gold">单价 ¥{item.price.toFixed(2)}</Tag>
-                                <Tag color="green">数量 {item.quantity}</Tag>
-                                <Tag color="purple">小计 ¥{item.subtotal.toFixed(2)}</Tag>
-                              </Space>
-                            }
+              items={
+                isAdminPage
+                  ? [
+                      {
+                        key: 'admin',
+                        label: '后台管理',
+                        children: (
+                          <AdminTab
+                            token={token}
+                            profile={profile}
+                            adminError={adminError}
+                            adminMessage={adminMessage}
+                            adminLoading={adminLoading}
+                            adminPageSize={adminPageSize}
+                            setAdminPageSize={setAdminPageSize}
+                            handleAdminRefresh={handleAdminRefresh}
+                            adminCategoryName={adminCategoryName}
+                            setAdminCategoryName={setAdminCategoryName}
+                            adminCategorySort={adminCategorySort}
+                            setAdminCategorySort={setAdminCategorySort}
+                            pagedAdminCategories={pagedAdminCategories}
+                            sortedAdminCategoriesLength={sortedAdminCategories.length}
+                            adminCategoryPage={adminCategoryPage}
+                            setAdminCategoryPage={setAdminCategoryPage}
+                            handleAdminCreateCategory={handleAdminCreateCategory}
+                            handleAdminDeleteCategory={handleAdminDeleteCategory}
+                            adminOrderSortBy={adminOrderSortBy}
+                            setAdminOrderSortBy={setAdminOrderSortBy}
+                            adminOrderSortOrder={adminOrderSortOrder}
+                            setAdminOrderSortOrder={setAdminOrderSortOrder}
+                            pagedAdminOrders={pagedAdminOrders}
+                            sortedAdminOrdersLength={sortedAdminOrders.length}
+                            adminOrderPage={adminOrderPage}
+                            setAdminOrderPage={setAdminOrderPage}
+                            adminProductKeyword={adminProductKeyword}
+                            setAdminProductKeyword={setAdminProductKeyword}
+                            adminProductCategory={adminProductCategory}
+                            setAdminProductCategory={setAdminProductCategory}
+                            categories={categories}
+                            handleAdminSearchProducts={handleAdminSearchProducts}
+                            adminProductSortBy={adminProductSortBy}
+                            setAdminProductSortBy={setAdminProductSortBy}
+                            adminProductSortOrder={adminProductSortOrder}
+                            setAdminProductSortOrder={setAdminProductSortOrder}
+                            adminAddProductId={adminAddProductId}
+                            setAdminAddProductId={setAdminAddProductId}
+                            adminAddProductName={adminAddProductName}
+                            setAdminAddProductName={setAdminAddProductName}
+                            adminAddProductCategory={adminAddProductCategory}
+                            setAdminAddProductCategory={setAdminAddProductCategory}
+                            adminAddProductPrice={adminAddProductPrice}
+                            setAdminAddProductPrice={setAdminAddProductPrice}
+                            adminAddProductStock={adminAddProductStock}
+                            setAdminAddProductStock={setAdminAddProductStock}
+                            adminAddProductDescription={adminAddProductDescription}
+                            setAdminAddProductDescription={setAdminAddProductDescription}
+                            handleAdminCreateProduct={handleAdminCreateProduct}
+                            pagedAdminProducts={pagedAdminProducts}
+                            sortedAdminProductsLength={sortedAdminProducts.length}
+                            adminProductPage={adminProductPage}
+                            setAdminProductPage={setAdminProductPage}
+                            handleAdminDeleteProduct={handleAdminDeleteProduct}
+                            adminUserKeyword={adminUserKeyword}
+                            setAdminUserKeyword={setAdminUserKeyword}
+                            handleAdminSearchUsers={handleAdminSearchUsers}
+                            adminUserSortBy={adminUserSortBy}
+                            setAdminUserSortBy={setAdminUserSortBy}
+                            adminUserSortOrder={adminUserSortOrder}
+                            setAdminUserSortOrder={setAdminUserSortOrder}
+                            pagedAdminUsers={pagedAdminUsers}
+                            adminUserDrafts={adminUserDrafts}
+                            handleAdminDraftChange={handleAdminDraftChange}
+                            handleAdminUpdateUser={handleAdminUpdateUser}
+                            adminUserPage={adminUserPage}
+                            setAdminUserPage={setAdminUserPage}
+                            sortedAdminUsersLength={sortedAdminUsers.length}
+                            adminCurrentPassword={adminCurrentPassword}
+                            setAdminCurrentPassword={setAdminCurrentPassword}
+                            adminNewPassword={adminNewPassword}
+                            setAdminNewPassword={setAdminNewPassword}
+                            handleAdminChangePassword={handleAdminChangePassword}
+                            adminLogs={adminLogs}
+                            formatDateTime={formatDateTime}
                           />
-                        </List.Item>
-                      )}
-                    />
-                  </Space>
-                ),
-            },
-            {
-              key: 'orders',
-              label: '我的订单',
-              children:
-                token === '' ? (
-                  <Typography.Paragraph>请先登录后查看订单。</Typography.Paragraph>
-                ) : (
-                  <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                    {orderError ? <Tag color="error">订单操作失败：{orderError}</Tag> : null}
-                    {orderMessage ? <Tag color="success">{orderMessage}</Tag> : null}
-                    <Button loading={orderLoading} onClick={() => void fetchOrders(token)}>
-                      刷新订单
-                    </Button>
-
-                    <List
-                      loading={orderLoading}
-                      locale={{ emptyText: <Empty description="暂无订单" /> }}
-                      dataSource={orderItems}
-                      renderItem={(order) => (
-                        <List.Item
-                          key={order.orderNo}
-                          actions={
-                            order.status === 'UNPAID'
-                              ? [
-                                  <Button
-                                    key={`pay-${order.orderNo}`}
-                                    type="primary"
-                                    onClick={() => void handlePayOrder(order.orderNo)}
-                                  >
-                                    立即付款
-                                  </Button>,
-                                ]
-                              : []
-                          }
-                        >
-                          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                            <Space wrap>
-                              <Tag color="blue">订单号：{order.orderNo}</Tag>
-                              <Tag color={order.status === 'PAID' ? 'success' : 'warning'}>
-                                {order.status}
-                              </Tag>
-                              <Tag color="gold">金额 ¥{order.totalAmount.toFixed(2)}</Tag>
-                              <Tag color="default">创建于 {formatDateTime(order.createdAt)}</Tag>
-                            </Space>
-                            <List
-                              size="small"
-                              dataSource={order.items}
-                              renderItem={(item) => (
-                                <List.Item key={`${order.orderNo}-${item.productId}`}>
-                                  <Space size={8} wrap>
-                                    <Typography.Text>{item.productName}</Typography.Text>
-                                    <Tag color="blue">{item.category}</Tag>
-                                    <Tag color="gold">¥{item.price.toFixed(2)}</Tag>
-                                    <Tag color="green">x{item.quantity}</Tag>
-                                    <Tag color="purple">¥{item.subtotal.toFixed(2)}</Tag>
-                                  </Space>
-                                </List.Item>
-                              )}
-                            />
-                          </Space>
-                        </List.Item>
-                      )}
-                    />
-                  </Space>
-                ),
-            },
-            {
-              key: 'admin',
-              label: '后台管理',
-              children:
-                token === '' ? (
-                  <Typography.Paragraph>请先登录管理员账号后使用后台管理。</Typography.Paragraph>
-                ) : !profile?.isAdmin ? (
-                  <Typography.Paragraph>当前账号不是管理员，无权访问后台管理功能。</Typography.Paragraph>
-                ) : (
-                  <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                    {adminError ? <Tag color="error">后台操作失败：{adminError}</Tag> : null}
-                    {adminMessage ? <Tag color="success">{adminMessage}</Tag> : null}
-                    <Space wrap>
-                      <Button loading={adminLoading} onClick={() => void handleAdminRefresh()}>
-                        刷新后台数据
-                      </Button>
-                      <Select
-                        style={{ width: 160 }}
-                        value={adminPageSize}
-                        options={[
-                          { label: '每页 5 条', value: 5 },
-                          { label: '每页 10 条', value: 10 },
-                          { label: '每页 20 条', value: 20 },
-                        ]}
-                        onChange={(value) => setAdminPageSize(value)}
-                      />
-                    </Space>
-
-                    <Row gutter={[16, 16]}>
-                      <Col xs={24} lg={12}>
-                        <Card id="admin-section-category" title="商品类别管理">
-                          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                            <Space.Compact style={{ width: '100%' }}>
-                              <Input
-                                placeholder="输入新分类名称"
-                                value={adminCategoryName}
-                                onChange={(event) => setAdminCategoryName(event.target.value)}
-                              />
-                              <Button
-                                type="primary"
-                                loading={adminLoading}
-                                onClick={() => void handleAdminCreateCategory()}
-                              >
-                                新增分类
-                              </Button>
-                            </Space.Compact>
-
-                            <Select
-                              style={{ width: 180 }}
-                              value={adminCategorySort}
-                              options={[
-                                { label: '按名称升序', value: 'asc' },
-                                { label: '按名称降序', value: 'desc' },
-                              ]}
-                              onChange={(value) => setAdminCategorySort(value)}
-                            />
-
-                            <List
-                              size="small"
-                              locale={{ emptyText: <Empty description="暂无分类" /> }}
-                              dataSource={pagedAdminCategories}
-                              renderItem={(category) => (
-                                <List.Item
-                                  key={category.id}
-                                  actions={[
-                                    <Popconfirm
-                                      key={`delete-category-${category.id}`}
-                                      title="确认删除该分类？"
-                                      description="若分类下存在商品，将无法删除。"
-                                      okText="确认删除"
-                                      cancelText="取消"
-                                      onConfirm={() => void handleAdminDeleteCategory(category.id)}
-                                    >
-                                      <Button danger type="link">
-                                        删除
-                                      </Button>
-                                    </Popconfirm>,
-                                  ]}
-                                >
-                                  {category.name}
-                                </List.Item>
-                              )}
-                            />
-                            <Pagination
-                              size="small"
-                              current={adminCategoryPage}
-                              pageSize={adminPageSize}
-                              total={sortedAdminCategories.length}
-                              onChange={(page) => setAdminCategoryPage(page)}
-                            />
-                          </Space>
-                        </Card>
-                      </Col>
-
-                      <Col xs={24} lg={12}>
-                        <Card id="admin-section-order" title="订单管理">
-                          <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                            <Space wrap>
-                              <Select
-                                style={{ width: 180 }}
-                                value={adminOrderSortBy}
-                                options={[
-                                  { label: '按创建时间', value: 'createdAt' },
-                                  { label: '按订单金额', value: 'totalAmount' },
-                                  { label: '按订单状态', value: 'status' },
-                                  { label: '按用户名', value: 'username' },
-                                ]}
-                                onChange={(value) => setAdminOrderSortBy(value)}
-                              />
-                              <Select
-                                style={{ width: 140 }}
-                                value={adminOrderSortOrder}
-                                options={[
-                                  { label: '升序', value: 'asc' },
-                                  { label: '降序', value: 'desc' },
-                                ]}
-                                onChange={(value) => setAdminOrderSortOrder(value)}
-                              />
-                            </Space>
-
-                          <List
-                            size="small"
-                            loading={adminLoading}
-                            locale={{ emptyText: <Empty description="暂无订单" /> }}
-                            dataSource={pagedAdminOrders}
-                            renderItem={(order) => (
-                              <List.Item key={order.orderNo}>
-                                <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                                  <Space wrap>
-                                    <Tag color="blue">订单号：{order.orderNo}</Tag>
-                                    <Tag color="default">用户：{order.username}</Tag>
-                                    <Tag color={order.status === 'PAID' ? 'success' : 'warning'}>
-                                      {order.status}
-                                    </Tag>
-                                    <Tag color="gold">¥{order.totalAmount.toFixed(2)}</Tag>
-                                  </Space>
-                                  <Typography.Text type="secondary">
-                                    创建时间：{formatDateTime(order.createdAt)}
-                                    {order.paidAt ? `，支付时间：${formatDateTime(order.paidAt)}` : ''}
-                                  </Typography.Text>
-                                </Space>
-                              </List.Item>
-                            )}
+                        ),
+                      },
+                    ]
+                  : [
+                      {
+                        key: 'products',
+                        label: '搜索商品（游客可用）',
+                        children: (
+                          <ProductsTab
+                            selectedCategory={selectedCategory}
+                            categoryLoading={categoryLoading}
+                            categories={categories}
+                            keyword={keyword}
+                            loading={loading}
+                            error={error}
+                            token={token}
+                            products={products}
+                            setSelectedCategory={setSelectedCategory}
+                            setKeyword={setKeyword}
+                            fetchProducts={fetchProducts}
+                            fetchProductDetail={fetchProductDetail}
+                            handleAddToCart={handleAddToCart}
                           />
-                            <Pagination
-                              size="small"
-                              current={adminOrderPage}
-                              pageSize={adminPageSize}
-                              total={sortedAdminOrders.length}
-                              onChange={(page) => setAdminOrderPage(page)}
-                            />
-                          </Space>
-                        </Card>
-                      </Col>
-                    </Row>
-
-                    <Card id="admin-section-product" title="商品管理">
-                      <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                        <Space wrap>
-                          <Input
-                            placeholder="按商品名筛选"
-                            value={adminProductKeyword}
-                            onChange={(event) => setAdminProductKeyword(event.target.value)}
+                        ),
+                      },
+                      {
+                        key: 'account',
+                        label: '用户中心',
+                        children: (
+                          <AccountTab
+                            authError={authError}
+                            authMessage={authMessage}
+                            token={token}
+                            profile={profile}
+                            authLoading={authLoading}
+                            loginUsername={loginUsername}
+                            loginPassword={loginPassword}
+                            registerUsername={registerUsername}
+                            registerPassword={registerPassword}
+                            registerNickname={registerNickname}
+                            registerPhone={registerPhone}
+                            editNickname={editNickname}
+                            editPhone={editPhone}
+                            currentPassword={currentPassword}
+                            newPassword={newPassword}
+                            formatDateTime={formatDateTime}
+                            setLoginUsername={setLoginUsername}
+                            setLoginPassword={setLoginPassword}
+                            setRegisterUsername={setRegisterUsername}
+                            setRegisterPassword={setRegisterPassword}
+                            setRegisterNickname={setRegisterNickname}
+                            setRegisterPhone={setRegisterPhone}
+                            setEditNickname={setEditNickname}
+                            setEditPhone={setEditPhone}
+                            setCurrentPassword={setCurrentPassword}
+                            setNewPassword={setNewPassword}
+                            handleLogin={handleLogin}
+                            handleRegister={handleRegister}
+                            handleUpdateProfile={handleUpdateProfile}
+                            handleChangePassword={handleChangePassword}
+                            handleLogout={handleLogout}
                           />
-                          <Select
-                            style={{ width: 180 }}
-                            value={adminProductCategory}
-                            options={[
-                              { label: '全部分类', value: '' },
-                              ...categories.map((category) => ({
-                                label: category,
-                                value: category,
-                              })),
-                            ]}
-                            onChange={(value) => setAdminProductCategory(value)}
+                        ),
+                      },
+                      {
+                        key: 'cart',
+                        label: '购物车',
+                        children: (
+                          <CartTab
+                            token={token}
+                            cartError={cartError}
+                            cartMessage={cartMessage}
+                            cartLoading={cartLoading}
+                            orderLoading={orderLoading}
+                            cartItems={cartItems}
+                            cartTotalAmount={cartTotalAmount}
+                            fetchCart={fetchCart}
+                            handleSubmitOrder={handleSubmitOrder}
+                            handleChangeCartQuantity={handleChangeCartQuantity}
+                            handleRemoveFromCart={handleRemoveFromCart}
                           />
-                          <Button loading={adminLoading} onClick={() => void handleAdminSearchProducts()}>
-                            查询商品
-                          </Button>
-                          <Select
-                            style={{ width: 180 }}
-                            value={adminProductSortBy}
-                            options={[
-                              { label: '按编号', value: 'id' },
-                              { label: '按名称', value: 'name' },
-                              { label: '按价格', value: 'price' },
-                              { label: '按库存', value: 'stock' },
-                              { label: '按分类', value: 'category' },
-                            ]}
-                            onChange={(value) => setAdminProductSortBy(value)}
+                        ),
+                      },
+                      {
+                        key: 'orders',
+                        label: '我的订单',
+                        children: (
+                          <OrdersTab
+                            token={token}
+                            orderError={orderError}
+                            orderMessage={orderMessage}
+                            orderLoading={orderLoading}
+                            orderItems={orderItems}
+                            formatDateTime={formatDateTime}
+                            fetchOrders={fetchOrders}
+                            handlePayOrder={handlePayOrder}
                           />
-                          <Select
-                            style={{ width: 140 }}
-                            value={adminProductSortOrder}
-                            options={[
-                              { label: '升序', value: 'asc' },
-                              { label: '降序', value: 'desc' },
-                            ]}
-                            onChange={(value) => setAdminProductSortOrder(value)}
-                          />
-                        </Space>
-
-                        <Row gutter={[12, 12]}>
-                          <Col xs={24} md={8}>
-                            <Input
-                              placeholder="商品编号，如 p-2001"
-                              value={adminAddProductId}
-                              onChange={(event) => setAdminAddProductId(event.target.value)}
-                            />
-                          </Col>
-                          <Col xs={24} md={8}>
-                            <Input
-                              placeholder="商品名称"
-                              value={adminAddProductName}
-                              onChange={(event) => setAdminAddProductName(event.target.value)}
-                            />
-                          </Col>
-                          <Col xs={24} md={8}>
-                            <Input
-                              placeholder="商品分类"
-                              value={adminAddProductCategory}
-                              onChange={(event) => setAdminAddProductCategory(event.target.value)}
-                            />
-                          </Col>
-                          <Col xs={24} md={8}>
-                            <InputNumber
-                              style={{ width: '100%' }}
-                              min={0.01}
-                              step={0.01}
-                              placeholder="价格"
-                              value={adminAddProductPrice}
-                              onChange={(value) => setAdminAddProductPrice(typeof value === 'number' ? value : 0)}
-                            />
-                          </Col>
-                          <Col xs={24} md={8}>
-                            <InputNumber
-                              style={{ width: '100%' }}
-                              min={0}
-                              step={1}
-                              placeholder="库存"
-                              value={adminAddProductStock}
-                              onChange={(value) => setAdminAddProductStock(typeof value === 'number' ? value : 0)}
-                            />
-                          </Col>
-                          <Col xs={24} md={8}>
-                            <Button type="primary" loading={adminLoading} onClick={() => void handleAdminCreateProduct()}>
-                              添加商品
-                            </Button>
-                          </Col>
-                        </Row>
-
-                        <Input.TextArea
-                          placeholder="商品描述"
-                          value={adminAddProductDescription}
-                          onChange={(event) => setAdminAddProductDescription(event.target.value)}
-                        />
-
-                        <List
-                          size="small"
-                          loading={adminLoading}
-                          locale={{ emptyText: <Empty description="暂无商品数据" /> }}
-                          dataSource={pagedAdminProducts}
-                          renderItem={(product) => (
-                            <List.Item
-                              key={product.id}
-                              actions={[
-                                <Popconfirm
-                                  key={`delete-product-${product.id}`}
-                                  title="确认删除该商品？"
-                                  description="删除后不可恢复。"
-                                  okText="确认删除"
-                                  cancelText="取消"
-                                  onConfirm={() => void handleAdminDeleteProduct(product.id)}
-                                >
-                                  <Button danger type="link">
-                                    删除商品
-                                  </Button>
-                                </Popconfirm>,
-                              ]}
-                            >
-                              <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                                <Space wrap>
-                                  <Tag color="blue">{product.id}</Tag>
-                                  <Typography.Text>{product.name}</Typography.Text>
-                                  <Tag color="gold">¥{product.price.toFixed(2)}</Tag>
-                                  <Tag color="green">库存 {product.stock}</Tag>
-                                  <Tag>{product.category}</Tag>
-                                </Space>
-                                <Typography.Text type="secondary">{product.description}</Typography.Text>
-                              </Space>
-                            </List.Item>
-                          )}
-                        />
-                        <Pagination
-                          size="small"
-                          current={adminProductPage}
-                          pageSize={adminPageSize}
-                          total={sortedAdminProducts.length}
-                          onChange={(page) => setAdminProductPage(page)}
-                        />
-                      </Space>
-                    </Card>
-
-                    <Card id="admin-section-user" title="用户管理">
-                      <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                        <Space>
-                          <Input
-                            placeholder="按账号模糊查询"
-                            value={adminUserKeyword}
-                            onChange={(event) => setAdminUserKeyword(event.target.value)}
-                          />
-                          <Button loading={adminLoading} onClick={() => void handleAdminSearchUsers()}>
-                            查询用户
-                          </Button>
-                          <Select
-                            style={{ width: 180 }}
-                            value={adminUserSortBy}
-                            options={[
-                              { label: '按用户ID', value: 'id' },
-                              { label: '按用户名', value: 'username' },
-                              { label: '按余额', value: 'balance' },
-                              { label: '按创建时间', value: 'createdAt' },
-                            ]}
-                            onChange={(value) => setAdminUserSortBy(value)}
-                          />
-                          <Select
-                            style={{ width: 140 }}
-                            value={adminUserSortOrder}
-                            options={[
-                              { label: '升序', value: 'asc' },
-                              { label: '降序', value: 'desc' },
-                            ]}
-                            onChange={(value) => setAdminUserSortOrder(value)}
-                          />
-                        </Space>
-
-                        <List
-                          size="small"
-                          loading={adminLoading}
-                          locale={{ emptyText: <Empty description="暂无用户" /> }}
-                          dataSource={pagedAdminUsers}
-                          renderItem={(user) => {
-                            const draft = adminUserDrafts[user.id] ?? {
-                              nickname: user.nickname ?? '',
-                              phone: user.phone ?? '',
-                              balance: user.balance,
-                              isAdmin: user.isAdmin,
-                            };
-                            return (
-                              <List.Item
-                                key={user.id}
-                                actions={[
-                                  <Button
-                                    key={`update-user-${user.id}`}
-                                    type="primary"
-                                    onClick={() => void handleAdminUpdateUser(user.id)}
-                                  >
-                                    保存用户
-                                  </Button>,
-                                ]}
-                              >
-                                <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                                  <Space wrap>
-                                    <Tag color="blue">ID {user.id}</Tag>
-                                    <Tag color="default">{user.username}</Tag>
-                                    <Tag color={draft.isAdmin ? 'success' : 'default'}>
-                                      {draft.isAdmin ? '管理员' : '普通用户'}
-                                    </Tag>
-                                    <Tag color="gold">余额 ¥{draft.balance.toFixed(2)}</Tag>
-                                  </Space>
-
-                                  <Row gutter={[8, 8]}>
-                                    <Col xs={24} md={8}>
-                                      <Input
-                                        placeholder="昵称"
-                                        value={draft.nickname}
-                                        onChange={(event) =>
-                                          handleAdminDraftChange(user.id, 'nickname', event.target.value)
-                                        }
-                                      />
-                                    </Col>
-                                    <Col xs={24} md={8}>
-                                      <Input
-                                        placeholder="手机号"
-                                        value={draft.phone}
-                                        onChange={(event) =>
-                                          handleAdminDraftChange(user.id, 'phone', event.target.value)
-                                        }
-                                      />
-                                    </Col>
-                                    <Col xs={24} md={4}>
-                                      <InputNumber
-                                        style={{ width: '100%' }}
-                                        min={0}
-                                        step={1}
-                                        value={draft.balance}
-                                        onChange={(value) =>
-                                          handleAdminDraftChange(
-                                            user.id,
-                                            'balance',
-                                            typeof value === 'number' ? value : 0,
-                                          )
-                                        }
-                                      />
-                                    </Col>
-                                    <Col xs={24} md={4}>
-                                      <Select
-                                        style={{ width: '100%' }}
-                                        value={draft.isAdmin ? 'admin' : 'user'}
-                                        options={[
-                                          { label: '普通用户', value: 'user' },
-                                          { label: '管理员', value: 'admin' },
-                                        ]}
-                                        onChange={(value) =>
-                                          handleAdminDraftChange(user.id, 'isAdmin', value === 'admin')
-                                        }
-                                      />
-                                    </Col>
-                                  </Row>
-                                </Space>
-                              </List.Item>
-                            );
-                          }}
-                        />
-                        <Pagination
-                          size="small"
-                          current={adminUserPage}
-                          pageSize={adminPageSize}
-                          total={sortedAdminUsers.length}
-                          onChange={(page) => setAdminUserPage(page)}
-                        />
-                      </Space>
-                    </Card>
-
-                    <Row id="admin-section-system" gutter={[16, 16]}>
-                      <Col xs={24} lg={12}>
-                        <Card title="系统管理（管理员改密）">
-                          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                            <Input.Password
-                              placeholder="当前管理员密码"
-                              value={adminCurrentPassword}
-                              onChange={(event) => setAdminCurrentPassword(event.target.value)}
-                            />
-                            <Input.Password
-                              placeholder="新管理员密码"
-                              value={adminNewPassword}
-                              onChange={(event) => setAdminNewPassword(event.target.value)}
-                            />
-                            <Button
-                              type="primary"
-                              loading={adminLoading}
-                              onClick={() => void handleAdminChangePassword()}
-                            >
-                              修改管理员密码
-                            </Button>
-                          </Space>
-                        </Card>
-                      </Col>
-
-                      <Col xs={24} lg={12}>
-                        <Card title="系统日志视图（原型）">
-                          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                            <Typography.Text type="secondary">
-                              展示最近后台操作日志（创建分类/商品、订单支付、用户管理等）
-                            </Typography.Text>
-                            <List
-                              size="small"
-                              loading={adminLoading}
-                              locale={{ emptyText: <Empty description="暂无系统日志" /> }}
-                              dataSource={adminLogs}
-                              renderItem={(log) => (
-                                <List.Item key={log.id}>
-                                  <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                                    <Space wrap>
-                                      <Tag color="default">{log.level}</Tag>
-                                      <Tag color="blue">{log.module}</Tag>
-                                      <Tag>{log.action}</Tag>
-                                      <Tag color="purple">{formatDateTime(log.createdAt)}</Tag>
-                                      {log.actorUserId ? <Tag color="gold">操作者 {log.actorUserId}</Tag> : null}
-                                    </Space>
-                                    <Typography.Text>{log.message}</Typography.Text>
-                                  </Space>
-                                </List.Item>
-                              )}
-                            />
-                          </Space>
-                        </Card>
-                      </Col>
-                    </Row>
-                  </Space>
-                ),
-            },
-              ].filter((item) => (isAdminPage ? item.key === 'admin' : item.key !== 'admin'))}
+                        ),
+                      },
+                    ]
+              }
             />
           </div>
         </div>
       </Card>
 
-      <Modal
-        title={detail?.name ?? '商品详情'}
-        open={isDetailOpen}
-        onCancel={() => setIsDetailOpen(false)}
-        footer={null}
-      >
-        {detailLoading ? (
-          <Typography.Paragraph>正在加载商品详情...</Typography.Paragraph>
-        ) : detailError ? (
-          <Typography.Text type="danger">详情加载失败：{detailError}</Typography.Text>
-        ) : detail ? (
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <Typography.Text>商品编号：{detail.id}</Typography.Text>
-            <Typography.Text>分类：{detail.category}</Typography.Text>
-            <Typography.Text>价格：¥{detail.price.toFixed(2)}</Typography.Text>
-            <Typography.Text>剩余库存：{detail.stock}</Typography.Text>
-            <Typography.Paragraph style={{ marginBottom: 0 }}>
-              商品介绍：{detail.description}
-            </Typography.Paragraph>
-          </Space>
-        ) : null}
-      </Modal>
+      <ProductDetailModal
+        detail={detail}
+        isDetailOpen={isDetailOpen}
+        detailLoading={detailLoading}
+        detailError={detailError}
+        onClose={() => setIsDetailOpen(false)}
+      />
     </main>
   );
 }
