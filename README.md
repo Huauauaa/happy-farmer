@@ -370,6 +370,7 @@ pnpm build
 - `pnpm build`：构建所有应用
 - `pnpm clean:node_modules`：清理根目录和 `apps/*` 下的 `node_modules`
 - `pnpm clean:node_modules:root`：仅清理根目录 `node_modules`
+- `pnpm clean:all`：清理 `node_modules`、`apps/*/dist` 和 `*.tsbuildinfo`
 - `pnpm format`：使用 Prettier 格式化整个仓库
 - `pnpm format:check`：检查代码格式
 
