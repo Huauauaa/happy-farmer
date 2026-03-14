@@ -19,6 +19,7 @@ const rawCategoryTableName = process.env.CATEGORY_TABLE ?? 'product_categories';
 const rawCartTableName = process.env.CART_TABLE ?? 'cart_items';
 const rawOrderTableName = process.env.ORDER_TABLE ?? 'orders';
 const rawOrderItemTableName = process.env.ORDER_ITEM_TABLE ?? 'order_items';
+const rawSystemLogTableName = process.env.SYSTEM_LOG_TABLE ?? 'system_logs';
 const rawUserTableName = process.env.USER_TABLE ?? 'users';
 const rawSessionTableName = process.env.USER_SESSION_TABLE ?? 'user_sessions';
 
@@ -135,6 +136,26 @@ type UserOrder = {
   items: OrderItem[];
 };
 
+type SystemLogRow = {
+  id: string | number;
+  level: string;
+  module: string;
+  action: string;
+  message: string;
+  actor_user_id: string | number | null;
+  created_at: Date | string;
+};
+
+type SystemLogItem = {
+  id: string;
+  level: string;
+  module: string;
+  action: string;
+  message: string;
+  actorUserId: string | null;
+  createdAt: string;
+};
+
 class ApiError extends Error {
   readonly status: number;
 
@@ -179,6 +200,7 @@ assertValidIdentifier(rawCategoryTableName, 'CATEGORY_TABLE');
 assertValidIdentifier(rawCartTableName, 'CART_TABLE');
 assertValidIdentifier(rawOrderTableName, 'ORDER_TABLE');
 assertValidIdentifier(rawOrderItemTableName, 'ORDER_ITEM_TABLE');
+assertValidIdentifier(rawSystemLogTableName, 'SYSTEM_LOG_TABLE');
 assertValidIdentifier(rawUserTableName, 'USER_TABLE');
 assertValidIdentifier(rawSessionTableName, 'USER_SESSION_TABLE');
 
@@ -188,6 +210,7 @@ const categoryTable = quoteIdentifier(rawCategoryTableName);
 const cartTable = quoteIdentifier(rawCartTableName);
 const orderTable = quoteIdentifier(rawOrderTableName);
 const orderItemTable = quoteIdentifier(rawOrderItemTableName);
+const systemLogTable = quoteIdentifier(rawSystemLogTableName);
 const userTable = quoteIdentifier(rawUserTableName);
 const sessionTable = quoteIdentifier(rawSessionTableName);
 const pool = mariadb.createPool({
@@ -347,6 +370,16 @@ const toUserOrder = (order: OrderRow, items: OrderItem[]): UserOrder => ({
   items,
 });
 
+const toSystemLogItem = (row: SystemLogRow): SystemLogItem => ({
+  id: String(row.id),
+  level: row.level,
+  module: row.module,
+  action: row.action,
+  message: row.message,
+  actorUserId: row.actor_user_id === null ? null : String(row.actor_user_id),
+  createdAt: formatTimestamp(row.created_at),
+});
+
 const toPositiveInt = (value: unknown): number | null => {
   if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
     return value;
@@ -386,6 +419,40 @@ const withConnection = async <T>(handler: (connection: PoolConnection) => Promis
     return await handler(connection);
   } finally {
     connection.release();
+  }
+};
+
+const appendSystemLog = async (params: {
+  level: 'INFO' | 'WARN' | 'ERROR';
+  module: string;
+  action: string;
+  message: string;
+  actorUserId?: string | number | null;
+}) => {
+  const actorUserId = params.actorUserId ?? null;
+  await withConnection(async (connection) => {
+    await connection.query(
+      `
+        INSERT INTO ${systemLogTable}
+        (level, module, action, message, actor_user_id)
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      [params.level, params.module, params.action, params.message, actorUserId],
+    );
+  });
+};
+
+const appendSystemLogSafely = async (params: {
+  level: 'INFO' | 'WARN' | 'ERROR';
+  module: string;
+  action: string;
+  message: string;
+  actorUserId?: string | number | null;
+}) => {
+  try {
+    await appendSystemLog(params);
+  } catch {
+    // Logging should never break business API responses.
   }
 };
 
@@ -490,6 +557,20 @@ const ensureAppTables = async () => {
         INDEX idx_order_items_order_id (order_id),
         CONSTRAINT fk_order_items_order
           FOREIGN KEY (order_id) REFERENCES ${orderTable}(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS ${systemLogTable} (
+        id BIGINT PRIMARY KEY AUTO_INCREMENT,
+        level VARCHAR(20) NOT NULL,
+        module VARCHAR(50) NOT NULL,
+        action VARCHAR(100) NOT NULL,
+        message VARCHAR(500) NOT NULL,
+        actor_user_id BIGINT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_system_logs_created_at (created_at),
+        INDEX idx_system_logs_actor_user_id (actor_user_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
@@ -808,6 +889,13 @@ app.post('/api/auth/register', async (req, res) => {
       );
     });
 
+    await appendSystemLogSafely({
+      level: 'INFO',
+      module: 'auth',
+      action: 'register',
+      message: `用户注册成功: ${username}`,
+    });
+
     res.status(201).json({ message: '注册成功' });
   } catch (error) {
     res.status(500).json({
@@ -866,6 +954,14 @@ app.post('/api/auth/login', async (req, res) => {
       await connection.query(`DELETE FROM ${sessionTable} WHERE user_id = ? AND expires_at <= NOW()`, [
         user.id,
       ]);
+    });
+
+    await appendSystemLogSafely({
+      level: 'INFO',
+      module: 'auth',
+      action: 'login',
+      message: `用户登录成功: ${user.username}`,
+      actorUserId: user.id,
     });
 
     res.json({
@@ -1029,6 +1125,13 @@ app.post('/api/auth/logout', async (req, res) => {
 
     await withConnection(async (connection) => {
       await connection.query(`DELETE FROM ${sessionTable} WHERE token = ?`, [token]);
+    });
+
+    await appendSystemLogSafely({
+      level: 'INFO',
+      module: 'auth',
+      action: 'logout',
+      message: '用户安全退出',
     });
 
     res.json({ message: '已退出登录' });
@@ -1304,6 +1407,14 @@ app.post('/api/orders/submit', async (req, res) => {
       await connection.query(`DELETE FROM ${cartTable} WHERE user_id = ?`, [auth.user.id]);
       await connection.commit();
 
+      await appendSystemLogSafely({
+        level: 'INFO',
+        module: 'order',
+        action: 'submit',
+        message: `提交订单成功: ${orderNo}, 金额 ${totalAmount.toFixed(2)}`,
+        actorUserId: auth.user.id,
+      });
+
       res.status(201).json({
         message: '订单提交成功',
         orderNo,
@@ -1410,6 +1521,14 @@ app.post('/api/orders/:orderNo/pay', async (req, res) => {
         order.id,
       ]);
       await connection.commit();
+
+      await appendSystemLogSafely({
+        level: 'INFO',
+        module: 'order',
+        action: 'pay',
+        message: `订单支付成功: ${orderNo}, 金额 ${totalAmount.toFixed(2)}`,
+        actorUserId: auth.user.id,
+      });
 
       res.json({ message: '付款成功', orderNo });
     } catch (error) {
@@ -1522,6 +1641,13 @@ app.post('/api/admin/categories', async (req, res) => {
       }
       await connection.query(`INSERT INTO ${categoryTable} (name) VALUES (?)`, [name]);
     });
+    await appendSystemLogSafely({
+      level: 'INFO',
+      module: 'admin.category',
+      action: 'create',
+      message: `管理员新增分类: ${name}`,
+      actorUserId: adminAuth.user.id,
+    });
     res.status(201).json({ message: '分类创建成功' });
   } catch (error) {
     if (isApiError(error)) {
@@ -1567,6 +1693,14 @@ app.delete('/api/admin/categories/:id', async (req, res) => {
       }
 
       await connection.query(`DELETE FROM ${categoryTable} WHERE id = ?`, [categoryId]);
+    });
+
+    await appendSystemLogSafely({
+      level: 'INFO',
+      module: 'admin.category',
+      action: 'delete',
+      message: `管理员删除分类: ${categoryId}`,
+      actorUserId: adminAuth.user.id,
     });
 
     res.json({ message: '分类删除成功' });
@@ -1670,6 +1804,14 @@ app.post('/api/admin/products', async (req, res) => {
       await connection.query(`INSERT IGNORE INTO ${categoryTable} (name) VALUES (?)`, [category]);
     });
 
+    await appendSystemLogSafely({
+      level: 'INFO',
+      module: 'admin.product',
+      action: 'create',
+      message: `管理员添加商品: ${name} (${id})`,
+      actorUserId: adminAuth.user.id,
+    });
+
     res.status(201).json({ message: '商品添加成功' });
   } catch (error) {
     if (isApiError(error)) {
@@ -1701,6 +1843,14 @@ app.delete('/api/admin/products/:id', async (req, res) => {
       }
       await connection.query(`DELETE FROM ${cartTable} WHERE product_id = ?`, [id]);
       await connection.query(`DELETE FROM ${productTable} WHERE id = ?`, [id]);
+    });
+
+    await appendSystemLogSafely({
+      level: 'INFO',
+      module: 'admin.product',
+      action: 'delete',
+      message: `管理员删除商品: ${id}`,
+      actorUserId: adminAuth.user.id,
     });
 
     res.json({ message: '商品删除成功' });
@@ -1876,6 +2026,14 @@ app.put('/api/admin/users/:id', async (req, res) => {
       }
     });
 
+    await appendSystemLogSafely({
+      level: 'INFO',
+      module: 'admin.user',
+      action: 'update',
+      message: `管理员更新用户: ${userId}`,
+      actorUserId: adminAuth.user.id,
+    });
+
     res.json({ message: '用户信息更新成功' });
   } catch (error) {
     if (isApiError(error)) {
@@ -1889,12 +2047,47 @@ app.put('/api/admin/users/:id', async (req, res) => {
   }
 });
 
+app.get('/api/admin/system/logs', async (req, res) => {
+  const limit = Number(req.query.limit);
+  const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 200) : 50;
+
+  try {
+    const adminAuth = await requireAdminAuth(req.header('authorization'));
+    if (!adminAuth) {
+      res.status(403).json({ message: '仅管理员可访问' });
+      return;
+    }
+
+    const rows = await withConnection(async (connection) => {
+      return (await connection.query(
+        `
+          SELECT id, level, module, action, message, actor_user_id, created_at
+          FROM ${systemLogTable}
+          ORDER BY id DESC
+          LIMIT ?
+        `,
+        [normalizedLimit],
+      )) as SystemLogRow[];
+    });
+
+    res.json({
+      total: rows.length,
+      items: rows.map(toSystemLogItem),
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: '系统日志查询失败',
+      error: readErrorMessage(error),
+    });
+  }
+});
+
 const startServer = async () => {
   try {
     await ensureAppTables();
     await seedDefaultAdmin();
     console.log(
-      `Database: ${jdbcConfig.host}:${jdbcConfig.port}/${jdbcConfig.database} tables={products:${rawProductTableName}, categories:${rawCategoryTableName}, carts:${rawCartTableName}, orders:${rawOrderTableName}, orderItems:${rawOrderItemTableName}, users:${rawUserTableName}, sessions:${rawSessionTableName}}`,
+      `Database: ${jdbcConfig.host}:${jdbcConfig.port}/${jdbcConfig.database} tables={products:${rawProductTableName}, categories:${rawCategoryTableName}, carts:${rawCartTableName}, orders:${rawOrderTableName}, orderItems:${rawOrderItemTableName}, users:${rawUserTableName}, sessions:${rawSessionTableName}, systemLogs:${rawSystemLogTableName}}`,
     );
     console.log(`Default admin username: ${adminSeedUsername}`);
     app.listen(port, () => {

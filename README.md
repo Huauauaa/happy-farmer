@@ -79,6 +79,7 @@ jdbc:mariadb://localhost:3306/farmer?useSSL=false&serverTimezone=Asia/Shanghai&c
 - `CART_TABLE`：购物车表名（默认 `cart_items`）
 - `ORDER_TABLE`：订单表名（默认 `orders`）
 - `ORDER_ITEM_TABLE`：订单明细表名（默认 `order_items`）
+- `SYSTEM_LOG_TABLE`：系统日志表名（默认 `system_logs`）
 - `USER_TABLE`：用户表名（默认 `users`）
 - `USER_SESSION_TABLE`：登录会话表名（默认 `user_sessions`）
 - `ADMIN_USERNAME`：默认管理员账号（默认 `admin`）
@@ -157,6 +158,16 @@ CREATE TABLE order_items (
   price DECIMAL(10, 2) NOT NULL,
   quantity INT NOT NULL,
   subtotal DECIMAL(10, 2) NOT NULL
+);
+
+CREATE TABLE system_logs (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  level VARCHAR(20) NOT NULL,
+  module VARCHAR(50) NOT NULL,
+  action VARCHAR(100) NOT NULL,
+  message VARCHAR(500) NOT NULL,
+  actor_user_id BIGINT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -294,6 +305,7 @@ Authorization: Bearer <token>
 - `GET /api/admin/orders`：查询所有订单
 - `GET /api/admin/users`：查询用户
 - `PUT /api/admin/users/:id`：管理用户信息（昵称/手机号/余额/管理员角色）
+- `GET /api/admin/system/logs`：查看系统日志（原型）
 
 ## 业务功能介绍（需求）
 
@@ -382,4 +394,5 @@ pnpm build
 - 订单：提交订单生成订单号、支付订单、查看个人订单
 - 后台：分类管理、商品管理、订单管理、用户管理、系统安全退出
 - 前端已提供后台管理界面（管理员登录后可在页面直接管理分类/商品/订单/用户）
+- 后台界面支持删除确认弹窗、列表分页与排序、管理员独立改密入口、系统日志视图原型
 - 提供后端健康检查、商品、用户、购物车、订单与后台管理接口

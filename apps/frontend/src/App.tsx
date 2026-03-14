@@ -7,6 +7,8 @@ import {
   InputNumber,
   List,
   Modal,
+  Pagination,
+  Popconfirm,
   Row,
   Select,
   Space,
@@ -14,7 +16,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type ProductSummary = {
   id: string;
@@ -155,6 +157,21 @@ type AdminUserDraft = {
   isAdmin: boolean;
 };
 
+type SystemLogItem = {
+  id: string;
+  level: string;
+  module: string;
+  action: string;
+  message: string;
+  actorUserId: string | null;
+  createdAt: string;
+};
+
+type SystemLogResponse = {
+  total: number;
+  items: SystemLogItem[];
+};
+
 const authTokenStorageKey = 'happy-farmer-token';
 
 const getStoredToken = (): string => {
@@ -241,6 +258,23 @@ function App() {
   const [adminAddProductPrice, setAdminAddProductPrice] = useState<number>(0);
   const [adminAddProductStock, setAdminAddProductStock] = useState<number>(0);
   const [adminAddProductDescription, setAdminAddProductDescription] = useState('');
+  const [adminCurrentPassword, setAdminCurrentPassword] = useState('');
+  const [adminNewPassword, setAdminNewPassword] = useState('');
+  const [adminLogs, setAdminLogs] = useState<SystemLogItem[]>([]);
+  const [adminCategorySort, setAdminCategorySort] = useState<'asc' | 'desc'>('asc');
+  const [adminProductSortBy, setAdminProductSortBy] = useState<'id' | 'name' | 'price' | 'stock' | 'category'>('id');
+  const [adminProductSortOrder, setAdminProductSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [adminOrderSortBy, setAdminOrderSortBy] = useState<'createdAt' | 'totalAmount' | 'status' | 'username'>(
+    'createdAt',
+  );
+  const [adminOrderSortOrder, setAdminOrderSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [adminUserSortBy, setAdminUserSortBy] = useState<'id' | 'username' | 'balance' | 'createdAt'>('id');
+  const [adminUserSortOrder, setAdminUserSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [adminCategoryPage, setAdminCategoryPage] = useState(1);
+  const [adminProductPage, setAdminProductPage] = useState(1);
+  const [adminOrderPage, setAdminOrderPage] = useState(1);
+  const [adminUserPage, setAdminUserPage] = useState(1);
+  const [adminPageSize, setAdminPageSize] = useState(5);
 
   const persistToken = (nextToken: string) => {
     setToken(nextToken);
@@ -616,6 +650,19 @@ function App() {
     setAdminOrders(data.items);
   };
 
+  const fetchAdminSystemLogs = async (authToken: string) => {
+    const response = await fetch('/api/admin/system/logs?limit=100', {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+    const data = (await response.json()) as SystemLogResponse;
+    setAdminLogs(data.items);
+  };
+
   const fetchAdminUsers = async (authToken: string, keywordValue: string) => {
     const params = new URLSearchParams();
     if (keywordValue.trim() !== '') {
@@ -642,6 +689,7 @@ function App() {
       fetchAdminProducts(authToken, adminProductKeyword, adminProductCategory),
       fetchAdminOrders(authToken),
       fetchAdminUsers(authToken, adminUserKeyword),
+      fetchAdminSystemLogs(authToken),
     ]);
   };
 
@@ -688,6 +736,7 @@ function App() {
       setAdminMessage(data.message);
       await fetchAdminCategories(authToken);
       await fetchCategories();
+      await fetchAdminSystemLogs(authToken);
     } catch (err) {
       setAdminError(err instanceof Error ? err.message : '未知错误');
     } finally {
@@ -717,6 +766,7 @@ function App() {
       setAdminMessage(data.message);
       await fetchAdminCategories(authToken);
       await fetchCategories();
+      await fetchAdminSystemLogs(authToken);
     } catch (err) {
       setAdminError(err instanceof Error ? err.message : '未知错误');
     } finally {
@@ -763,6 +813,7 @@ function App() {
       await fetchAdminCategories(authToken);
       await fetchCategories();
       await fetchProducts(keyword, selectedCategory);
+      await fetchAdminSystemLogs(authToken);
     } catch (err) {
       setAdminError(err instanceof Error ? err.message : '未知错误');
     } finally {
@@ -793,6 +844,7 @@ function App() {
       await fetchAdminProducts(authToken, adminProductKeyword, adminProductCategory);
       await fetchProducts(keyword, selectedCategory);
       await fetchCart(authToken);
+      await fetchAdminSystemLogs(authToken);
     } catch (err) {
       setAdminError(err instanceof Error ? err.message : '未知错误');
     } finally {
@@ -884,9 +936,45 @@ function App() {
       const data = (await response.json()) as MessageResponse;
       setAdminMessage(`${data.message}（用户 ID: ${userId}）`);
       await fetchAdminUsers(authToken, adminUserKeyword);
+      await fetchAdminSystemLogs(authToken);
       if (profile?.id === userId) {
         await fetchProfile(authToken);
       }
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleAdminChangePassword = async () => {
+    const authToken = requireAdminToken();
+    if (!authToken) {
+      return;
+    }
+    setAdminLoading(true);
+    setAdminError(null);
+    setAdminMessage(null);
+    try {
+      const response = await fetch('/api/users/me/password', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          currentPassword: adminCurrentPassword,
+          newPassword: adminNewPassword,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as MessageResponse;
+      setAdminCurrentPassword('');
+      setAdminNewPassword('');
+      setAdminMessage(`管理员密码修改成功：${data.message}`);
+      await fetchAdminSystemLogs(authToken);
     } catch (err) {
       setAdminError(err instanceof Error ? err.message : '未知错误');
     } finally {
@@ -1095,6 +1183,76 @@ function App() {
     setEditNickname(profile?.nickname ?? '');
     setEditPhone(profile?.phone ?? '');
   }, [profile]);
+
+  useEffect(() => {
+    setAdminCategoryPage(1);
+  }, [adminCategories.length, adminCategorySort, adminPageSize]);
+
+  useEffect(() => {
+    setAdminProductPage(1);
+  }, [adminProducts.length, adminProductSortBy, adminProductSortOrder, adminPageSize]);
+
+  useEffect(() => {
+    setAdminOrderPage(1);
+  }, [adminOrders.length, adminOrderSortBy, adminOrderSortOrder, adminPageSize]);
+
+  useEffect(() => {
+    setAdminUserPage(1);
+  }, [adminUsers.length, adminUserSortBy, adminUserSortOrder, adminPageSize]);
+
+  const sortedAdminCategories = useMemo(() => {
+    const copied = [...adminCategories];
+    copied.sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
+    if (adminCategorySort === 'desc') {
+      copied.reverse();
+    }
+    return copied;
+  }, [adminCategories, adminCategorySort]);
+
+  const sortedAdminProducts = useMemo(() => {
+    const copied = [...adminProducts];
+    copied.sort((left, right) => {
+      const factor = adminProductSortOrder === 'asc' ? 1 : -1;
+      if (adminProductSortBy === 'price' || adminProductSortBy === 'stock') {
+        return (left[adminProductSortBy] - right[adminProductSortBy]) * factor;
+      }
+      return String(left[adminProductSortBy]).localeCompare(String(right[adminProductSortBy]), 'zh-CN') * factor;
+    });
+    return copied;
+  }, [adminProducts, adminProductSortBy, adminProductSortOrder]);
+
+  const sortedAdminOrders = useMemo(() => {
+    const copied = [...adminOrders];
+    copied.sort((left, right) => {
+      const factor = adminOrderSortOrder === 'asc' ? 1 : -1;
+      if (adminOrderSortBy === 'totalAmount') {
+        return (left.totalAmount - right.totalAmount) * factor;
+      }
+      return String(left[adminOrderSortBy]).localeCompare(String(right[adminOrderSortBy]), 'zh-CN') * factor;
+    });
+    return copied;
+  }, [adminOrders, adminOrderSortBy, adminOrderSortOrder]);
+
+  const sortedAdminUsers = useMemo(() => {
+    const copied = [...adminUsers];
+    copied.sort((left, right) => {
+      const factor = adminUserSortOrder === 'asc' ? 1 : -1;
+      if (adminUserSortBy === 'balance') {
+        return (left.balance - right.balance) * factor;
+      }
+      if (adminUserSortBy === 'id') {
+        return (Number(left.id) - Number(right.id)) * factor;
+      }
+      return String(left[adminUserSortBy]).localeCompare(String(right[adminUserSortBy]), 'zh-CN') * factor;
+    });
+    return copied;
+  }, [adminUsers, adminUserSortBy, adminUserSortOrder]);
+
+  const pageStart = (page: number) => (page - 1) * adminPageSize;
+  const pagedAdminCategories = sortedAdminCategories.slice(pageStart(adminCategoryPage), pageStart(adminCategoryPage) + adminPageSize);
+  const pagedAdminProducts = sortedAdminProducts.slice(pageStart(adminProductPage), pageStart(adminProductPage) + adminPageSize);
+  const pagedAdminOrders = sortedAdminOrders.slice(pageStart(adminOrderPage), pageStart(adminOrderPage) + adminPageSize);
+  const pagedAdminUsers = sortedAdminUsers.slice(pageStart(adminUserPage), pageStart(adminUserPage) + adminPageSize);
 
   return (
     <main className="min-h-screen bg-slate-50 p-8">
@@ -1475,9 +1633,21 @@ function App() {
                   <Space direction="vertical" size={16} style={{ width: '100%' }}>
                     {adminError ? <Tag color="error">后台操作失败：{adminError}</Tag> : null}
                     {adminMessage ? <Tag color="success">{adminMessage}</Tag> : null}
-                    <Button loading={adminLoading} onClick={() => void handleAdminRefresh()}>
-                      刷新后台数据
-                    </Button>
+                    <Space wrap>
+                      <Button loading={adminLoading} onClick={() => void handleAdminRefresh()}>
+                        刷新后台数据
+                      </Button>
+                      <Select
+                        style={{ width: 160 }}
+                        value={adminPageSize}
+                        options={[
+                          { label: '每页 5 条', value: 5 },
+                          { label: '每页 10 条', value: 10 },
+                          { label: '每页 20 条', value: 20 },
+                        ]}
+                        onChange={(value) => setAdminPageSize(value)}
+                      />
+                    </Space>
 
                     <Row gutter={[16, 16]}>
                       <Col xs={24} lg={12}>
@@ -1498,27 +1668,48 @@ function App() {
                               </Button>
                             </Space.Compact>
 
+                            <Select
+                              style={{ width: 180 }}
+                              value={adminCategorySort}
+                              options={[
+                                { label: '按名称升序', value: 'asc' },
+                                { label: '按名称降序', value: 'desc' },
+                              ]}
+                              onChange={(value) => setAdminCategorySort(value)}
+                            />
+
                             <List
                               size="small"
                               locale={{ emptyText: <Empty description="暂无分类" /> }}
-                              dataSource={adminCategories}
+                              dataSource={pagedAdminCategories}
                               renderItem={(category) => (
                                 <List.Item
                                   key={category.id}
                                   actions={[
-                                    <Button
+                                    <Popconfirm
                                       key={`delete-category-${category.id}`}
-                                      danger
-                                      type="link"
-                                      onClick={() => void handleAdminDeleteCategory(category.id)}
+                                      title="确认删除该分类？"
+                                      description="若分类下存在商品，将无法删除。"
+                                      okText="确认删除"
+                                      cancelText="取消"
+                                      onConfirm={() => void handleAdminDeleteCategory(category.id)}
                                     >
-                                      删除
-                                    </Button>,
+                                      <Button danger type="link">
+                                        删除
+                                      </Button>
+                                    </Popconfirm>,
                                   ]}
                                 >
                                   {category.name}
                                 </List.Item>
                               )}
+                            />
+                            <Pagination
+                              size="small"
+                              current={adminCategoryPage}
+                              pageSize={adminPageSize}
+                              total={sortedAdminCategories.length}
+                              onChange={(page) => setAdminCategoryPage(page)}
                             />
                           </Space>
                         </Card>
@@ -1526,11 +1717,35 @@ function App() {
 
                       <Col xs={24} lg={12}>
                         <Card title="订单管理">
+                          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                            <Space wrap>
+                              <Select
+                                style={{ width: 180 }}
+                                value={adminOrderSortBy}
+                                options={[
+                                  { label: '按创建时间', value: 'createdAt' },
+                                  { label: '按订单金额', value: 'totalAmount' },
+                                  { label: '按订单状态', value: 'status' },
+                                  { label: '按用户名', value: 'username' },
+                                ]}
+                                onChange={(value) => setAdminOrderSortBy(value)}
+                              />
+                              <Select
+                                style={{ width: 140 }}
+                                value={adminOrderSortOrder}
+                                options={[
+                                  { label: '升序', value: 'asc' },
+                                  { label: '降序', value: 'desc' },
+                                ]}
+                                onChange={(value) => setAdminOrderSortOrder(value)}
+                              />
+                            </Space>
+
                           <List
                             size="small"
                             loading={adminLoading}
                             locale={{ emptyText: <Empty description="暂无订单" /> }}
-                            dataSource={adminOrders}
+                            dataSource={pagedAdminOrders}
                             renderItem={(order) => (
                               <List.Item key={order.orderNo}>
                                 <Space direction="vertical" size={6} style={{ width: '100%' }}>
@@ -1550,6 +1765,14 @@ function App() {
                               </List.Item>
                             )}
                           />
+                            <Pagination
+                              size="small"
+                              current={adminOrderPage}
+                              pageSize={adminPageSize}
+                              total={sortedAdminOrders.length}
+                              onChange={(page) => setAdminOrderPage(page)}
+                            />
+                          </Space>
                         </Card>
                       </Col>
                     </Row>
@@ -1577,6 +1800,27 @@ function App() {
                           <Button loading={adminLoading} onClick={() => void handleAdminSearchProducts()}>
                             查询商品
                           </Button>
+                          <Select
+                            style={{ width: 180 }}
+                            value={adminProductSortBy}
+                            options={[
+                              { label: '按编号', value: 'id' },
+                              { label: '按名称', value: 'name' },
+                              { label: '按价格', value: 'price' },
+                              { label: '按库存', value: 'stock' },
+                              { label: '按分类', value: 'category' },
+                            ]}
+                            onChange={(value) => setAdminProductSortBy(value)}
+                          />
+                          <Select
+                            style={{ width: 140 }}
+                            value={adminProductSortOrder}
+                            options={[
+                              { label: '升序', value: 'asc' },
+                              { label: '降序', value: 'desc' },
+                            ]}
+                            onChange={(value) => setAdminProductSortOrder(value)}
+                          />
                         </Space>
 
                         <Row gutter={[12, 12]}>
@@ -1638,19 +1882,23 @@ function App() {
                           size="small"
                           loading={adminLoading}
                           locale={{ emptyText: <Empty description="暂无商品数据" /> }}
-                          dataSource={adminProducts}
+                          dataSource={pagedAdminProducts}
                           renderItem={(product) => (
                             <List.Item
                               key={product.id}
                               actions={[
-                                <Button
+                                <Popconfirm
                                   key={`delete-product-${product.id}`}
-                                  danger
-                                  type="link"
-                                  onClick={() => void handleAdminDeleteProduct(product.id)}
+                                  title="确认删除该商品？"
+                                  description="删除后不可恢复。"
+                                  okText="确认删除"
+                                  cancelText="取消"
+                                  onConfirm={() => void handleAdminDeleteProduct(product.id)}
                                 >
-                                  删除商品
-                                </Button>,
+                                  <Button danger type="link">
+                                    删除商品
+                                  </Button>
+                                </Popconfirm>,
                               ]}
                             >
                               <Space direction="vertical" size={4} style={{ width: '100%' }}>
@@ -1666,6 +1914,13 @@ function App() {
                             </List.Item>
                           )}
                         />
+                        <Pagination
+                          size="small"
+                          current={adminProductPage}
+                          pageSize={adminPageSize}
+                          total={sortedAdminProducts.length}
+                          onChange={(page) => setAdminProductPage(page)}
+                        />
                       </Space>
                     </Card>
 
@@ -1680,13 +1935,33 @@ function App() {
                           <Button loading={adminLoading} onClick={() => void handleAdminSearchUsers()}>
                             查询用户
                           </Button>
+                          <Select
+                            style={{ width: 180 }}
+                            value={adminUserSortBy}
+                            options={[
+                              { label: '按用户ID', value: 'id' },
+                              { label: '按用户名', value: 'username' },
+                              { label: '按余额', value: 'balance' },
+                              { label: '按创建时间', value: 'createdAt' },
+                            ]}
+                            onChange={(value) => setAdminUserSortBy(value)}
+                          />
+                          <Select
+                            style={{ width: 140 }}
+                            value={adminUserSortOrder}
+                            options={[
+                              { label: '升序', value: 'asc' },
+                              { label: '降序', value: 'desc' },
+                            ]}
+                            onChange={(value) => setAdminUserSortOrder(value)}
+                          />
                         </Space>
 
                         <List
                           size="small"
                           loading={adminLoading}
                           locale={{ emptyText: <Empty description="暂无用户" /> }}
-                          dataSource={adminUsers}
+                          dataSource={pagedAdminUsers}
                           renderItem={(user) => {
                             const draft = adminUserDrafts[user.id] ?? {
                               nickname: user.nickname ?? '',
@@ -1770,8 +2045,71 @@ function App() {
                             );
                           }}
                         />
+                        <Pagination
+                          size="small"
+                          current={adminUserPage}
+                          pageSize={adminPageSize}
+                          total={sortedAdminUsers.length}
+                          onChange={(page) => setAdminUserPage(page)}
+                        />
                       </Space>
                     </Card>
+
+                    <Row gutter={[16, 16]}>
+                      <Col xs={24} lg={12}>
+                        <Card title="系统管理（管理员改密）">
+                          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                            <Input.Password
+                              placeholder="当前管理员密码"
+                              value={adminCurrentPassword}
+                              onChange={(event) => setAdminCurrentPassword(event.target.value)}
+                            />
+                            <Input.Password
+                              placeholder="新管理员密码"
+                              value={adminNewPassword}
+                              onChange={(event) => setAdminNewPassword(event.target.value)}
+                            />
+                            <Button
+                              type="primary"
+                              loading={adminLoading}
+                              onClick={() => void handleAdminChangePassword()}
+                            >
+                              修改管理员密码
+                            </Button>
+                          </Space>
+                        </Card>
+                      </Col>
+
+                      <Col xs={24} lg={12}>
+                        <Card title="系统日志视图（原型）">
+                          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                            <Typography.Text type="secondary">
+                              展示最近后台操作日志（创建分类/商品、订单支付、用户管理等）
+                            </Typography.Text>
+                            <List
+                              size="small"
+                              loading={adminLoading}
+                              locale={{ emptyText: <Empty description="暂无系统日志" /> }}
+                              dataSource={adminLogs}
+                              renderItem={(log) => (
+                                <List.Item key={log.id}>
+                                  <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                                    <Space wrap>
+                                      <Tag color="default">{log.level}</Tag>
+                                      <Tag color="blue">{log.module}</Tag>
+                                      <Tag>{log.action}</Tag>
+                                      <Tag color="purple">{formatDateTime(log.createdAt)}</Tag>
+                                      {log.actorUserId ? <Tag color="gold">操作者 {log.actorUserId}</Tag> : null}
+                                    </Space>
+                                    <Typography.Text>{log.message}</Typography.Text>
+                                  </Space>
+                                </List.Item>
+                              )}
+                            />
+                          </Space>
+                        </Card>
+                      </Col>
+                    </Row>
                   </Space>
                 ),
             },
