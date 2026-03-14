@@ -8,6 +8,8 @@
     "dev:frontend": "pnpm --filter @happy-farmer/frontend dev",
     "dev:backend": "pnpm --filter @happy-farmer/backend dev",
     "build": "pnpm -r build",
+    "clean:node_modules": "rm -rf node_modules apps/*/node_modules",
+    "clean:node_modules:root": "rm -rf node_modules",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
