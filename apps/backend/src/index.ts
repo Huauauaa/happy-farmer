@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
-import mariadb, { type PoolConnection } from 'mariadb';
+import * as mariadb from 'mariadb';
+import type { PoolConnection } from 'mariadb';
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -111,12 +112,11 @@ const toProductDetail = (row: ProductDetailRow): ProductDetail => ({
 });
 
 const withConnection = async <T>(handler: (connection: PoolConnection) => Promise<T>) => {
-  let connection: PoolConnection | null = null;
+  const connection = await pool.getConnection();
   try {
-    connection = await pool.getConnection();
     return await handler(connection);
   } finally {
-    connection?.release();
+    connection.release();
   }
 };
 
