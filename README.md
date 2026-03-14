@@ -134,15 +134,16 @@ CREATE TABLE user_sessions (
 
 在前端开发环境下，`/api` 请求会由 Vite 代理到 `http://localhost:3001`。
 
-### `GET /api/products?keyword=关键词`
+### `GET /api/products?keyword=关键词&category=分类名`
 
-按商品名称进行模糊搜索。`keyword` 为空时返回全部商品。
+按商品名称模糊搜索，并支持按分类筛选。`keyword` 和 `category` 都为空时返回全部商品。
 
 示例返回：
 
 ```json
 {
   "keyword": "苹果",
+  "category": "水果",
   "total": 1,
   "items": [
     {
@@ -155,6 +156,10 @@ CREATE TABLE user_sessions (
   ]
 }
 ```
+
+### `GET /api/product-categories`
+
+获取可筛选的商品分类列表。
 
 ### `GET /api/products/:id`
 
@@ -272,6 +277,7 @@ pnpm build
 ## 当前功能
 
 - 游客模式商品搜索：可按商品名称查询商品
+- 分类查询：可按商品分类筛选商品
 - 商品列表展示：分类、价格、库存信息
 - 商品详情查看：可查看商品编号、库存、描述等信息
 - 用户注册、登录、查看并更新个人资料、修改密码

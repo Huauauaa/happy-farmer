@@ -1,4 +1,18 @@
-import { Button, Card, Col, Empty, Input, List, Modal, Row, Space, Tabs, Tag, Typography } from 'antd';
+import {
+  Button,
+  Card,
+  Col,
+  Empty,
+  Input,
+  List,
+  Modal,
+  Row,
+  Select,
+  Space,
+  Tabs,
+  Tag,
+  Typography,
+} from 'antd';
 import { useEffect, useState } from 'react';
 
 type ProductSummary = {
@@ -15,8 +29,13 @@ type ProductDetail = ProductSummary & {
 
 type ProductSearchResponse = {
   keyword: string;
+  category: string;
   total: number;
   items: ProductSummary[];
+};
+
+type CategoryListResponse = {
+  items: string[];
 };
 
 type UserProfile = {
@@ -81,8 +100,11 @@ const readErrorMessage = async (response: Response): Promise<string> => {
 
 function App() {
   const [keyword, setKeyword] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<ProductSummary[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [categoryLoading, setCategoryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -116,13 +138,23 @@ function App() {
     }
   };
 
-  const fetchProducts = async (keywordValue: string) => {
+  const fetchProducts = async (keywordValue: string, categoryValue: string) => {
     setLoading(true);
     setError(null);
 
     try {
-      const query = encodeURIComponent(keywordValue.trim());
-      const response = await fetch(`/api/products?keyword=${query}`);
+      const queryKeyword = keywordValue.trim();
+      const queryCategory = categoryValue.trim();
+      const searchParams = new URLSearchParams();
+      if (queryKeyword !== '') {
+        searchParams.set('keyword', queryKeyword);
+      }
+      if (queryCategory !== '') {
+        searchParams.set('category', queryCategory);
+      }
+      const queryString = searchParams.toString();
+      const url = queryString === '' ? '/api/products' : `/api/products?${queryString}`;
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error(await readErrorMessage(response));
       }
@@ -134,6 +166,23 @@ function App() {
       setProducts([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCategories = async () => {
+    setCategoryLoading(true);
+    try {
+      const response = await fetch('/api/product-categories');
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as CategoryListResponse;
+      setCategories(data.items);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      setCategories([]);
+    } finally {
+      setCategoryLoading(false);
     }
   };
 
@@ -332,7 +381,8 @@ function App() {
   };
 
   useEffect(() => {
-    void fetchProducts('');
+    void fetchCategories();
+    void fetchProducts('', '');
   }, []);
 
   useEffect(() => {
@@ -366,21 +416,42 @@ function App() {
               label: '搜索商品（游客可用）',
               children: (
                 <>
-                  <Space.Compact style={{ width: '100%', marginBottom: 16 }}>
+                  <Space wrap style={{ width: '100%', marginBottom: 16 }}>
+                    <Select
+                      style={{ width: 200 }}
+                      value={selectedCategory}
+                      loading={categoryLoading}
+                      options={[
+                        { label: '全部分类', value: '' },
+                        ...categories.map((category) => ({
+                          label: category,
+                          value: category,
+                        })),
+                      ]}
+                      onChange={(nextCategory) => {
+                        setSelectedCategory(nextCategory);
+                        void fetchProducts(keyword, nextCategory);
+                      }}
+                    />
                     <Input
+                      style={{ minWidth: 260, flex: 1 }}
                       placeholder="请输入商品名称，例如：苹果"
                       value={keyword}
                       onChange={(event) => {
                         setKeyword(event.target.value);
                       }}
                       onPressEnter={() => {
-                        void fetchProducts(keyword);
+                        void fetchProducts(keyword, selectedCategory);
                       }}
                     />
-                    <Button type="primary" loading={loading} onClick={() => void fetchProducts(keyword)}>
+                    <Button
+                      type="primary"
+                      loading={loading}
+                      onClick={() => void fetchProducts(keyword, selectedCategory)}
+                    >
                       搜索
                     </Button>
-                  </Space.Compact>
+                  </Space>
 
                   {error ? (
                     <Tag color="error" style={{ marginBottom: 12 }}>

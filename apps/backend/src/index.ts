@@ -119,7 +119,7 @@ const pool = mariadb.createPool({
 
 const sessionExpireDays = 7;
 
-const getKeyword = (value: unknown): string => {
+const getQueryText = (value: unknown): string => {
   if (typeof value === 'string') {
     return value.trim();
   }
@@ -333,11 +333,22 @@ app.get('/api/health', async (_req, res) => {
 });
 
 app.get('/api/products', async (req, res) => {
-  const keyword = getKeyword(req.query.keyword);
-  const querySql = keyword
-    ? `SELECT id, name, category, price, stock FROM ${productTable} WHERE name LIKE ? ORDER BY id`
-    : `SELECT id, name, category, price, stock FROM ${productTable} ORDER BY id`;
-  const params = keyword ? [`%${keyword}%`] : [];
+  const keyword = getQueryText(req.query.keyword);
+  const category = getQueryText(req.query.category);
+  const conditions: string[] = [];
+  const params: string[] = [];
+
+  if (keyword !== '') {
+    conditions.push('name LIKE ?');
+    params.push(`%${keyword}%`);
+  }
+  if (category !== '') {
+    conditions.push('category = ?');
+    params.push(category);
+  }
+
+  const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+  const querySql = `SELECT id, name, category, price, stock FROM ${productTable}${whereClause} ORDER BY id`;
 
   try {
     const rows = await withConnection(async (connection) => {
@@ -346,12 +357,32 @@ app.get('/api/products', async (req, res) => {
     const items = rows.map(toProductSummary);
     res.json({
       keyword,
+      category,
       total: items.length,
       items,
     });
   } catch (error) {
     res.status(500).json({
       message: '商品查询失败',
+      error: readErrorMessage(error),
+    });
+  }
+});
+
+app.get('/api/product-categories', async (_req, res) => {
+  try {
+    const rows = await withConnection(async (connection) => {
+      return (await connection.query(
+        `SELECT DISTINCT category FROM ${productTable} WHERE category IS NOT NULL AND category <> '' ORDER BY category`,
+      )) as Array<{ category: string }>;
+    });
+
+    res.json({
+      items: rows.map((row) => row.category),
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: '分类查询失败',
       error: readErrorMessage(error),
     });
   }
