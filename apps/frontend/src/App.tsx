@@ -114,6 +114,47 @@ type SubmitOrderResponse = {
   status: string;
 };
 
+type AdminCategory = {
+  id: string;
+  name: string;
+};
+
+type AdminCategoryResponse = {
+  total: number;
+  items: AdminCategory[];
+};
+
+type AdminProductResponse = {
+  total: number;
+  items: ProductDetail[];
+};
+
+type AdminOrderSummary = {
+  orderNo: string;
+  username: string;
+  totalAmount: number;
+  status: string;
+  createdAt: string;
+  paidAt: string | null;
+};
+
+type AdminOrderResponse = {
+  total: number;
+  items: AdminOrderSummary[];
+};
+
+type AdminUserResponse = {
+  total: number;
+  items: UserProfile[];
+};
+
+type AdminUserDraft = {
+  nickname: string;
+  phone: string;
+  balance: number;
+  isAdmin: boolean;
+};
+
 const authTokenStorageKey = 'happy-farmer-token';
 
 const getStoredToken = (): string => {
@@ -182,6 +223,24 @@ function App() {
   const [orderLoading, setOrderLoading] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
   const [orderMessage, setOrderMessage] = useState<string | null>(null);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState<string | null>(null);
+  const [adminMessage, setAdminMessage] = useState<string | null>(null);
+  const [adminCategories, setAdminCategories] = useState<AdminCategory[]>([]);
+  const [adminProducts, setAdminProducts] = useState<ProductDetail[]>([]);
+  const [adminOrders, setAdminOrders] = useState<AdminOrderSummary[]>([]);
+  const [adminUsers, setAdminUsers] = useState<UserProfile[]>([]);
+  const [adminUserDrafts, setAdminUserDrafts] = useState<Record<string, AdminUserDraft>>({});
+  const [adminCategoryName, setAdminCategoryName] = useState('');
+  const [adminProductKeyword, setAdminProductKeyword] = useState('');
+  const [adminProductCategory, setAdminProductCategory] = useState('');
+  const [adminUserKeyword, setAdminUserKeyword] = useState('');
+  const [adminAddProductId, setAdminAddProductId] = useState('');
+  const [adminAddProductName, setAdminAddProductName] = useState('');
+  const [adminAddProductCategory, setAdminAddProductCategory] = useState('');
+  const [adminAddProductPrice, setAdminAddProductPrice] = useState<number>(0);
+  const [adminAddProductStock, setAdminAddProductStock] = useState<number>(0);
+  const [adminAddProductDescription, setAdminAddProductDescription] = useState('');
 
   const persistToken = (nextToken: string) => {
     setToken(nextToken);
@@ -193,6 +252,31 @@ function App() {
     } else {
       window.localStorage.setItem(authTokenStorageKey, nextToken);
     }
+  };
+
+  const toAdminDrafts = (users: UserProfile[]): Record<string, AdminUserDraft> => {
+    const drafts: Record<string, AdminUserDraft> = {};
+    users.forEach((user) => {
+      drafts[user.id] = {
+        nickname: user.nickname ?? '',
+        phone: user.phone ?? '',
+        balance: user.balance,
+        isAdmin: user.isAdmin,
+      };
+    });
+    return drafts;
+  };
+
+  const requireAdminToken = (): string | null => {
+    if (token === '') {
+      setAdminError('请先登录管理员账号');
+      return null;
+    }
+    if (!profile?.isAdmin) {
+      setAdminError('当前账号不是管理员');
+      return null;
+    }
+    return token;
   };
 
   const fetchProducts = async (keywordValue: string, categoryValue: string) => {
@@ -480,6 +564,336 @@ function App() {
     }
   };
 
+  const fetchAdminCategories = async (authToken: string) => {
+    const response = await fetch('/api/admin/categories', {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+    const data = (await response.json()) as AdminCategoryResponse;
+    setAdminCategories(data.items);
+  };
+
+  const fetchAdminProducts = async (
+    authToken: string,
+    keywordValue: string,
+    categoryValue: string,
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (keywordValue.trim() !== '') {
+      searchParams.set('keyword', keywordValue.trim());
+    }
+    if (categoryValue.trim() !== '') {
+      searchParams.set('category', categoryValue.trim());
+    }
+    const query = searchParams.toString();
+    const url = query === '' ? '/api/admin/products' : `/api/admin/products?${query}`;
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+    const data = (await response.json()) as AdminProductResponse;
+    setAdminProducts(data.items);
+  };
+
+  const fetchAdminOrders = async (authToken: string) => {
+    const response = await fetch('/api/admin/orders', {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+    const data = (await response.json()) as AdminOrderResponse;
+    setAdminOrders(data.items);
+  };
+
+  const fetchAdminUsers = async (authToken: string, keywordValue: string) => {
+    const params = new URLSearchParams();
+    if (keywordValue.trim() !== '') {
+      params.set('keyword', keywordValue.trim());
+    }
+    const query = params.toString();
+    const url = query === '' ? '/api/admin/users' : `/api/admin/users?${query}`;
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+    const data = (await response.json()) as AdminUserResponse;
+    setAdminUsers(data.items);
+    setAdminUserDrafts(toAdminDrafts(data.items));
+  };
+
+  const refreshAdminDashboard = async (authToken: string) => {
+    await Promise.all([
+      fetchAdminCategories(authToken),
+      fetchAdminProducts(authToken, adminProductKeyword, adminProductCategory),
+      fetchAdminOrders(authToken),
+      fetchAdminUsers(authToken, adminUserKeyword),
+    ]);
+  };
+
+  const handleAdminRefresh = async () => {
+    const authToken = requireAdminToken();
+    if (!authToken) {
+      return;
+    }
+    setAdminLoading(true);
+    setAdminError(null);
+    setAdminMessage(null);
+    try {
+      await refreshAdminDashboard(authToken);
+      setAdminMessage('后台数据已刷新');
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleAdminCreateCategory = async () => {
+    const authToken = requireAdminToken();
+    if (!authToken) {
+      return;
+    }
+    setAdminLoading(true);
+    setAdminError(null);
+    setAdminMessage(null);
+    try {
+      const response = await fetch('/api/admin/categories', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ name: adminCategoryName }),
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as MessageResponse;
+      setAdminCategoryName('');
+      setAdminMessage(data.message);
+      await fetchAdminCategories(authToken);
+      await fetchCategories();
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleAdminDeleteCategory = async (id: string) => {
+    const authToken = requireAdminToken();
+    if (!authToken) {
+      return;
+    }
+    setAdminLoading(true);
+    setAdminError(null);
+    setAdminMessage(null);
+    try {
+      const response = await fetch(`/api/admin/categories/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as MessageResponse;
+      setAdminMessage(data.message);
+      await fetchAdminCategories(authToken);
+      await fetchCategories();
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleAdminCreateProduct = async () => {
+    const authToken = requireAdminToken();
+    if (!authToken) {
+      return;
+    }
+    setAdminLoading(true);
+    setAdminError(null);
+    setAdminMessage(null);
+    try {
+      const response = await fetch('/api/admin/products', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          id: adminAddProductId,
+          name: adminAddProductName,
+          category: adminAddProductCategory,
+          price: adminAddProductPrice,
+          stock: adminAddProductStock,
+          description: adminAddProductDescription,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as MessageResponse;
+      setAdminMessage(data.message);
+      setAdminAddProductId('');
+      setAdminAddProductName('');
+      setAdminAddProductCategory('');
+      setAdminAddProductPrice(0);
+      setAdminAddProductStock(0);
+      setAdminAddProductDescription('');
+      await fetchAdminProducts(authToken, adminProductKeyword, adminProductCategory);
+      await fetchAdminCategories(authToken);
+      await fetchCategories();
+      await fetchProducts(keyword, selectedCategory);
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleAdminDeleteProduct = async (productId: string) => {
+    const authToken = requireAdminToken();
+    if (!authToken) {
+      return;
+    }
+    setAdminLoading(true);
+    setAdminError(null);
+    setAdminMessage(null);
+    try {
+      const response = await fetch(`/api/admin/products/${encodeURIComponent(productId)}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as MessageResponse;
+      setAdminMessage(data.message);
+      await fetchAdminProducts(authToken, adminProductKeyword, adminProductCategory);
+      await fetchProducts(keyword, selectedCategory);
+      await fetchCart(authToken);
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleAdminSearchProducts = async () => {
+    const authToken = requireAdminToken();
+    if (!authToken) {
+      return;
+    }
+    setAdminLoading(true);
+    setAdminError(null);
+    try {
+      await fetchAdminProducts(authToken, adminProductKeyword, adminProductCategory);
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleAdminSearchUsers = async () => {
+    const authToken = requireAdminToken();
+    if (!authToken) {
+      return;
+    }
+    setAdminLoading(true);
+    setAdminError(null);
+    try {
+      await fetchAdminUsers(authToken, adminUserKeyword);
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleAdminDraftChange = <K extends keyof AdminUserDraft>(
+    userId: string,
+    field: K,
+    value: AdminUserDraft[K],
+  ) => {
+    setAdminUserDrafts((previous) => ({
+      ...previous,
+      [userId]: {
+        ...(previous[userId] ?? {
+          nickname: '',
+          phone: '',
+          balance: 0,
+          isAdmin: false,
+        }),
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleAdminUpdateUser = async (userId: string) => {
+    const authToken = requireAdminToken();
+    if (!authToken) {
+      return;
+    }
+    const draft = adminUserDrafts[userId];
+    if (!draft) {
+      setAdminError('未找到可更新的用户草稿数据');
+      return;
+    }
+    setAdminLoading(true);
+    setAdminError(null);
+    setAdminMessage(null);
+    try {
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          nickname: draft.nickname,
+          phone: draft.phone,
+          balance: draft.balance,
+          isAdmin: draft.isAdmin,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+      const data = (await response.json()) as MessageResponse;
+      setAdminMessage(`${data.message}（用户 ID: ${userId}）`);
+      await fetchAdminUsers(authToken, adminUserKeyword);
+      if (profile?.id === userId) {
+        await fetchProfile(authToken);
+      }
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : '未知错误');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
   const handleRegister = async () => {
     setAuthLoading(true);
     setAuthError(null);
@@ -638,6 +1052,11 @@ function App() {
     setCartItems([]);
     setCartTotalAmount(0);
     setOrderItems([]);
+    setAdminCategories([]);
+    setAdminProducts([]);
+    setAdminOrders([]);
+    setAdminUsers([]);
+    setAdminUserDrafts({});
     setAuthError(null);
     setAuthMessage('已退出登录');
   };
@@ -653,12 +1072,24 @@ function App() {
       setCartItems([]);
       setCartTotalAmount(0);
       setOrderItems([]);
+      setAdminCategories([]);
+      setAdminProducts([]);
+      setAdminOrders([]);
+      setAdminUsers([]);
+      setAdminUserDrafts({});
       return;
     }
     void fetchProfile(token);
     void fetchCart(token);
     void fetchOrders(token);
   }, [token]);
+
+  useEffect(() => {
+    if (token === '' || !profile?.isAdmin) {
+      return;
+    }
+    void handleAdminRefresh();
+  }, [token, profile?.isAdmin]);
 
   useEffect(() => {
     setEditNickname(profile?.nickname ?? '');
@@ -1029,6 +1460,318 @@ function App() {
                         </List.Item>
                       )}
                     />
+                  </Space>
+                ),
+            },
+            {
+              key: 'admin',
+              label: '后台管理',
+              children:
+                token === '' ? (
+                  <Typography.Paragraph>请先登录管理员账号后使用后台管理。</Typography.Paragraph>
+                ) : !profile?.isAdmin ? (
+                  <Typography.Paragraph>当前账号不是管理员，无权访问后台管理功能。</Typography.Paragraph>
+                ) : (
+                  <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                    {adminError ? <Tag color="error">后台操作失败：{adminError}</Tag> : null}
+                    {adminMessage ? <Tag color="success">{adminMessage}</Tag> : null}
+                    <Button loading={adminLoading} onClick={() => void handleAdminRefresh()}>
+                      刷新后台数据
+                    </Button>
+
+                    <Row gutter={[16, 16]}>
+                      <Col xs={24} lg={12}>
+                        <Card title="商品类别管理">
+                          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                            <Space.Compact style={{ width: '100%' }}>
+                              <Input
+                                placeholder="输入新分类名称"
+                                value={adminCategoryName}
+                                onChange={(event) => setAdminCategoryName(event.target.value)}
+                              />
+                              <Button
+                                type="primary"
+                                loading={adminLoading}
+                                onClick={() => void handleAdminCreateCategory()}
+                              >
+                                新增分类
+                              </Button>
+                            </Space.Compact>
+
+                            <List
+                              size="small"
+                              locale={{ emptyText: <Empty description="暂无分类" /> }}
+                              dataSource={adminCategories}
+                              renderItem={(category) => (
+                                <List.Item
+                                  key={category.id}
+                                  actions={[
+                                    <Button
+                                      key={`delete-category-${category.id}`}
+                                      danger
+                                      type="link"
+                                      onClick={() => void handleAdminDeleteCategory(category.id)}
+                                    >
+                                      删除
+                                    </Button>,
+                                  ]}
+                                >
+                                  {category.name}
+                                </List.Item>
+                              )}
+                            />
+                          </Space>
+                        </Card>
+                      </Col>
+
+                      <Col xs={24} lg={12}>
+                        <Card title="订单管理">
+                          <List
+                            size="small"
+                            loading={adminLoading}
+                            locale={{ emptyText: <Empty description="暂无订单" /> }}
+                            dataSource={adminOrders}
+                            renderItem={(order) => (
+                              <List.Item key={order.orderNo}>
+                                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                                  <Space wrap>
+                                    <Tag color="blue">订单号：{order.orderNo}</Tag>
+                                    <Tag color="default">用户：{order.username}</Tag>
+                                    <Tag color={order.status === 'PAID' ? 'success' : 'warning'}>
+                                      {order.status}
+                                    </Tag>
+                                    <Tag color="gold">¥{order.totalAmount.toFixed(2)}</Tag>
+                                  </Space>
+                                  <Typography.Text type="secondary">
+                                    创建时间：{formatDateTime(order.createdAt)}
+                                    {order.paidAt ? `，支付时间：${formatDateTime(order.paidAt)}` : ''}
+                                  </Typography.Text>
+                                </Space>
+                              </List.Item>
+                            )}
+                          />
+                        </Card>
+                      </Col>
+                    </Row>
+
+                    <Card title="商品管理">
+                      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                        <Space wrap>
+                          <Input
+                            placeholder="按商品名筛选"
+                            value={adminProductKeyword}
+                            onChange={(event) => setAdminProductKeyword(event.target.value)}
+                          />
+                          <Select
+                            style={{ width: 180 }}
+                            value={adminProductCategory}
+                            options={[
+                              { label: '全部分类', value: '' },
+                              ...categories.map((category) => ({
+                                label: category,
+                                value: category,
+                              })),
+                            ]}
+                            onChange={(value) => setAdminProductCategory(value)}
+                          />
+                          <Button loading={adminLoading} onClick={() => void handleAdminSearchProducts()}>
+                            查询商品
+                          </Button>
+                        </Space>
+
+                        <Row gutter={[12, 12]}>
+                          <Col xs={24} md={8}>
+                            <Input
+                              placeholder="商品编号，如 p-2001"
+                              value={adminAddProductId}
+                              onChange={(event) => setAdminAddProductId(event.target.value)}
+                            />
+                          </Col>
+                          <Col xs={24} md={8}>
+                            <Input
+                              placeholder="商品名称"
+                              value={adminAddProductName}
+                              onChange={(event) => setAdminAddProductName(event.target.value)}
+                            />
+                          </Col>
+                          <Col xs={24} md={8}>
+                            <Input
+                              placeholder="商品分类"
+                              value={adminAddProductCategory}
+                              onChange={(event) => setAdminAddProductCategory(event.target.value)}
+                            />
+                          </Col>
+                          <Col xs={24} md={8}>
+                            <InputNumber
+                              style={{ width: '100%' }}
+                              min={0.01}
+                              step={0.01}
+                              placeholder="价格"
+                              value={adminAddProductPrice}
+                              onChange={(value) => setAdminAddProductPrice(typeof value === 'number' ? value : 0)}
+                            />
+                          </Col>
+                          <Col xs={24} md={8}>
+                            <InputNumber
+                              style={{ width: '100%' }}
+                              min={0}
+                              step={1}
+                              placeholder="库存"
+                              value={adminAddProductStock}
+                              onChange={(value) => setAdminAddProductStock(typeof value === 'number' ? value : 0)}
+                            />
+                          </Col>
+                          <Col xs={24} md={8}>
+                            <Button type="primary" loading={adminLoading} onClick={() => void handleAdminCreateProduct()}>
+                              添加商品
+                            </Button>
+                          </Col>
+                        </Row>
+
+                        <Input.TextArea
+                          placeholder="商品描述"
+                          value={adminAddProductDescription}
+                          onChange={(event) => setAdminAddProductDescription(event.target.value)}
+                        />
+
+                        <List
+                          size="small"
+                          loading={adminLoading}
+                          locale={{ emptyText: <Empty description="暂无商品数据" /> }}
+                          dataSource={adminProducts}
+                          renderItem={(product) => (
+                            <List.Item
+                              key={product.id}
+                              actions={[
+                                <Button
+                                  key={`delete-product-${product.id}`}
+                                  danger
+                                  type="link"
+                                  onClick={() => void handleAdminDeleteProduct(product.id)}
+                                >
+                                  删除商品
+                                </Button>,
+                              ]}
+                            >
+                              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                                <Space wrap>
+                                  <Tag color="blue">{product.id}</Tag>
+                                  <Typography.Text>{product.name}</Typography.Text>
+                                  <Tag color="gold">¥{product.price.toFixed(2)}</Tag>
+                                  <Tag color="green">库存 {product.stock}</Tag>
+                                  <Tag>{product.category}</Tag>
+                                </Space>
+                                <Typography.Text type="secondary">{product.description}</Typography.Text>
+                              </Space>
+                            </List.Item>
+                          )}
+                        />
+                      </Space>
+                    </Card>
+
+                    <Card title="用户管理">
+                      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                        <Space>
+                          <Input
+                            placeholder="按账号模糊查询"
+                            value={adminUserKeyword}
+                            onChange={(event) => setAdminUserKeyword(event.target.value)}
+                          />
+                          <Button loading={adminLoading} onClick={() => void handleAdminSearchUsers()}>
+                            查询用户
+                          </Button>
+                        </Space>
+
+                        <List
+                          size="small"
+                          loading={adminLoading}
+                          locale={{ emptyText: <Empty description="暂无用户" /> }}
+                          dataSource={adminUsers}
+                          renderItem={(user) => {
+                            const draft = adminUserDrafts[user.id] ?? {
+                              nickname: user.nickname ?? '',
+                              phone: user.phone ?? '',
+                              balance: user.balance,
+                              isAdmin: user.isAdmin,
+                            };
+                            return (
+                              <List.Item
+                                key={user.id}
+                                actions={[
+                                  <Button
+                                    key={`update-user-${user.id}`}
+                                    type="primary"
+                                    onClick={() => void handleAdminUpdateUser(user.id)}
+                                  >
+                                    保存用户
+                                  </Button>,
+                                ]}
+                              >
+                                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                                  <Space wrap>
+                                    <Tag color="blue">ID {user.id}</Tag>
+                                    <Tag color="default">{user.username}</Tag>
+                                    <Tag color={draft.isAdmin ? 'success' : 'default'}>
+                                      {draft.isAdmin ? '管理员' : '普通用户'}
+                                    </Tag>
+                                    <Tag color="gold">余额 ¥{draft.balance.toFixed(2)}</Tag>
+                                  </Space>
+
+                                  <Row gutter={[8, 8]}>
+                                    <Col xs={24} md={8}>
+                                      <Input
+                                        placeholder="昵称"
+                                        value={draft.nickname}
+                                        onChange={(event) =>
+                                          handleAdminDraftChange(user.id, 'nickname', event.target.value)
+                                        }
+                                      />
+                                    </Col>
+                                    <Col xs={24} md={8}>
+                                      <Input
+                                        placeholder="手机号"
+                                        value={draft.phone}
+                                        onChange={(event) =>
+                                          handleAdminDraftChange(user.id, 'phone', event.target.value)
+                                        }
+                                      />
+                                    </Col>
+                                    <Col xs={24} md={4}>
+                                      <InputNumber
+                                        style={{ width: '100%' }}
+                                        min={0}
+                                        step={1}
+                                        value={draft.balance}
+                                        onChange={(value) =>
+                                          handleAdminDraftChange(
+                                            user.id,
+                                            'balance',
+                                            typeof value === 'number' ? value : 0,
+                                          )
+                                        }
+                                      />
+                                    </Col>
+                                    <Col xs={24} md={4}>
+                                      <Select
+                                        style={{ width: '100%' }}
+                                        value={draft.isAdmin ? 'admin' : 'user'}
+                                        options={[
+                                          { label: '普通用户', value: 'user' },
+                                          { label: '管理员', value: 'admin' },
+                                        ]}
+                                        onChange={(value) =>
+                                          handleAdminDraftChange(user.id, 'isAdmin', value === 'admin')
+                                        }
+                                      />
+                                    </Col>
+                                  </Row>
+                                </Space>
+                              </List.Item>
+                            );
+                          }}
+                        />
+                      </Space>
+                    </Card>
                   </Space>
                 ),
             },
