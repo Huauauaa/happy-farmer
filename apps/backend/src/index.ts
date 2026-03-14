@@ -8,6 +8,7 @@ import { config as loadDotenv } from 'dotenv';
 import express from 'express';
 import * as mariadb from 'mariadb';
 import type { PoolConnection } from 'mariadb';
+import { z } from 'zod';
 
 const currentFileDir = dirname(fileURLToPath(import.meta.url));
 const dotenvPaths = [
@@ -24,23 +25,57 @@ for (const envPath of dotenvPaths) {
   loadedDotenvPaths.add(envPath);
 }
 
-const app = express();
-const port = Number(process.env.PORT ?? 3001);
 const serviceName = 'happy-farmer-backend';
 const defaultJdbcUrl =
   'jdbc:mariadb://localhost:3306/farmer?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8';
-const jdbcUrl = process.env.DB_JDBC_URL ?? defaultJdbcUrl;
-const dbUser = process.env.DB_USER ?? 'root';
-const dbPassword = process.env.DB_PASSWORD ?? '';
-const connectionLimit = Number(process.env.DB_CONNECTION_LIMIT ?? 5);
-const rawProductTableName = process.env.PRODUCT_TABLE ?? 'products';
-const rawCategoryTableName = process.env.CATEGORY_TABLE ?? 'product_categories';
-const rawCartTableName = process.env.CART_TABLE ?? 'cart_items';
-const rawOrderTableName = process.env.ORDER_TABLE ?? 'orders';
-const rawOrderItemTableName = process.env.ORDER_ITEM_TABLE ?? 'order_items';
-const rawSystemLogTableName = process.env.SYSTEM_LOG_TABLE ?? 'system_logs';
-const rawUserTableName = process.env.USER_TABLE ?? 'users';
-const rawSessionTableName = process.env.USER_SESSION_TABLE ?? 'user_sessions';
+const tableNameSchema = z.string().regex(/^[A-Za-z0-9_]+$/, '表名仅支持字母、数字和下划线');
+const envSchema = z.object({
+  PORT: z.coerce.number().int().positive().default(3001),
+  DB_JDBC_URL: z.string().min(1).default(defaultJdbcUrl),
+  DB_USER: z.string().min(1).default('root'),
+  DB_PASSWORD: z.string().default(''),
+  DB_CONNECTION_LIMIT: z.coerce.number().int().positive().max(50).default(5),
+  PRODUCT_TABLE: tableNameSchema.default('products'),
+  CATEGORY_TABLE: tableNameSchema.default('product_categories'),
+  CART_TABLE: tableNameSchema.default('cart_items'),
+  ORDER_TABLE: tableNameSchema.default('orders'),
+  ORDER_ITEM_TABLE: tableNameSchema.default('order_items'),
+  SYSTEM_LOG_TABLE: tableNameSchema.default('system_logs'),
+  USER_TABLE: tableNameSchema.default('users'),
+  USER_SESSION_TABLE: tableNameSchema.default('user_sessions'),
+  ADMIN_USERNAME: z
+    .string()
+    .regex(/^[A-Za-z0-9_]{3,32}$/, '管理员账号需为 3-32 位字母/数字/下划线')
+    .default('admin'),
+  ADMIN_PASSWORD: z
+    .string()
+    .min(6, '管理员密码至少 6 位')
+    .max(64, '管理员密码最多 64 位')
+    .default('admin123456'),
+});
+const parsedEnv = envSchema.safeParse(process.env);
+if (!parsedEnv.success) {
+  const issue = parsedEnv.error.issues[0];
+  throw new Error(
+    `Invalid environment configuration: ${issue.path.join('.') || 'unknown'} ${issue.message}`,
+  );
+}
+const env = parsedEnv.data;
+
+const app = express();
+const port = env.PORT;
+const jdbcUrl = env.DB_JDBC_URL;
+const dbUser = env.DB_USER;
+const dbPassword = env.DB_PASSWORD;
+const connectionLimit = env.DB_CONNECTION_LIMIT;
+const rawProductTableName = env.PRODUCT_TABLE;
+const rawCategoryTableName = env.CATEGORY_TABLE;
+const rawCartTableName = env.CART_TABLE;
+const rawOrderTableName = env.ORDER_TABLE;
+const rawOrderItemTableName = env.ORDER_ITEM_TABLE;
+const rawSystemLogTableName = env.SYSTEM_LOG_TABLE;
+const rawUserTableName = env.USER_TABLE;
+const rawSessionTableName = env.USER_SESSION_TABLE;
 
 app.use(cors());
 app.use(express.json());
@@ -206,22 +241,7 @@ const parseJdbcUrl = (value: string) => {
   };
 };
 
-const assertValidIdentifier = (name: string, envName: string) => {
-  if (!/^[A-Za-z0-9_]+$/.test(name)) {
-    throw new Error(`${envName} only allows letters, numbers and underscores`);
-  }
-};
-
 const quoteIdentifier = (name: string) => `\`${name}\``;
-
-assertValidIdentifier(rawProductTableName, 'PRODUCT_TABLE');
-assertValidIdentifier(rawCategoryTableName, 'CATEGORY_TABLE');
-assertValidIdentifier(rawCartTableName, 'CART_TABLE');
-assertValidIdentifier(rawOrderTableName, 'ORDER_TABLE');
-assertValidIdentifier(rawOrderItemTableName, 'ORDER_ITEM_TABLE');
-assertValidIdentifier(rawSystemLogTableName, 'SYSTEM_LOG_TABLE');
-assertValidIdentifier(rawUserTableName, 'USER_TABLE');
-assertValidIdentifier(rawSessionTableName, 'USER_SESSION_TABLE');
 
 const jdbcConfig = parseJdbcUrl(jdbcUrl);
 const productTable = quoteIdentifier(rawProductTableName);
@@ -238,7 +258,7 @@ const pool = mariadb.createPool({
   database: jdbcConfig.database,
   user: dbUser,
   password: dbPassword,
-  connectionLimit: Number.isNaN(connectionLimit) ? 5 : connectionLimit,
+  connectionLimit,
   ssl: jdbcConfig.sslEnabled ? {} : undefined,
   timezone: jdbcConfig.timezone,
   charset: jdbcConfig.charset,
@@ -287,29 +307,96 @@ const formatTimestamp = (value: string | Date): string => {
   return value;
 };
 
-const validateUsername = (username: string): string | null => {
-  if (!/^[A-Za-z0-9_]{3,32}$/.test(username)) {
-    return '用户名需为 3-32 位，仅可包含字母、数字、下划线';
+const usernameSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9_]{3,32}$/, '用户名需为 3-32 位，仅可包含字母、数字、下划线');
+const passwordSchema = z
+  .string()
+  .min(6, '密码长度需在 6 到 64 位之间')
+  .max(64, '密码长度需在 6 到 64 位之间');
+const phoneRegex = /^[0-9+\- ]{6,32}$/;
+const nullablePhoneSchema = z
+  .string()
+  .trim()
+  .transform((value) => (value === '' ? null : value))
+  .nullable()
+  .refine((value) => value === null || phoneRegex.test(value), '手机号格式不正确');
+const nullableNicknameSchema = z
+  .string()
+  .trim()
+  .transform((value) => (value === '' ? null : value))
+  .nullable()
+  .refine((value) => value === null || value.length <= 128, '昵称最长 128 个字符');
+const positiveIntSchema = z.coerce.number().int().positive('数量必须为正整数');
+const zodErrorMessage = (error: z.ZodError): string => error.issues[0]?.message ?? '请求参数不合法';
+const parseWithSchema = <S extends z.ZodTypeAny>(schema: S, value: unknown): z.infer<S> => {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    throw new ApiError(400, zodErrorMessage(parsed.error));
   }
-  return null;
+  return parsed.data;
 };
 
-const validatePassword = (password: string): string | null => {
-  if (password.length < 6 || password.length > 64) {
-    return '密码长度需在 6 到 64 位之间';
-  }
-  return null;
-};
-
-const validatePhone = (phone: string | null): string | null => {
-  if (phone === null) {
-    return null;
-  }
-  if (!/^[0-9+\- ]{6,32}$/.test(phone)) {
-    return '手机号格式不正确';
-  }
-  return null;
-};
+const registerPayloadSchema = z.object({
+  username: usernameSchema,
+  password: passwordSchema,
+  nickname: z.string().optional().default('').pipe(nullableNicknameSchema),
+  phone: z.string().optional().default('').pipe(nullablePhoneSchema),
+});
+const loginPayloadSchema = z.object({
+  username: z.string().trim().min(1, '账号和密码不能为空'),
+  password: z.string().min(1, '账号和密码不能为空'),
+});
+const profileUpdatePayloadSchema = z
+  .object({
+    nickname: z.string().optional(),
+    phone: z.string().optional(),
+  })
+  .refine(
+    (payload) => payload.nickname !== undefined || payload.phone !== undefined,
+    '至少传入一个可更新字段',
+  );
+const passwordUpdatePayloadSchema = z.object({
+  currentPassword: z.string().min(1, '当前密码和新密码不能为空'),
+  newPassword: passwordSchema,
+});
+const cartAddPayloadSchema = z.object({
+  productId: z.string().trim().min(1, '商品编号不能为空'),
+  quantity: positiveIntSchema.default(1),
+});
+const cartUpdatePayloadSchema = z.object({
+  quantity: positiveIntSchema,
+});
+const adminCategoryCreatePayloadSchema = z.object({
+  name: z.string().trim().min(1, '分类名称不能为空'),
+});
+const adminProductCreatePayloadSchema = z.object({
+  id: z.string().trim().min(1, '商品编号不能为空'),
+  name: z.string().trim().min(1, '商品名称不能为空'),
+  category: z.string().trim().min(1, '商品分类不能为空'),
+  description: z.string().trim().min(1, '商品描述不能为空'),
+  price: z.coerce.number().positive('商品价格必须大于 0'),
+  stock: z.coerce.number().int('库存必须是非负整数').min(0, '库存必须是非负整数'),
+});
+const adminUserUpdatePayloadSchema = z
+  .object({
+    nickname: z.string().optional(),
+    phone: z.string().optional(),
+    balance: z.coerce.number().min(0, '余额必须是非负数').optional(),
+    isAdmin: z.union([z.boolean(), z.literal(0), z.literal(1)]).optional(),
+  })
+  .refine(
+    (payload) =>
+      payload.nickname !== undefined ||
+      payload.phone !== undefined ||
+      payload.balance !== undefined ||
+      payload.isAdmin !== undefined,
+    '至少传入一个更新字段',
+  );
+const adminSystemLogsQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(200).default(50),
+});
 
 const hashPassword = (password: string) => {
   const salt = randomBytes(16).toString('hex');
@@ -410,7 +497,10 @@ const toPositiveInt = (value: unknown): number | null => {
 };
 
 const generateOrderNo = (): string => {
-  const timePart = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  const timePart = new Date()
+    .toISOString()
+    .replace(/[-:.TZ]/g, '')
+    .slice(0, 14);
   const randomPart = randomBytes(3).toString('hex').toUpperCase();
   return `OD${timePart}${randomPart}`;
 };
@@ -475,8 +565,8 @@ const appendSystemLogSafely = async (params: {
   }
 };
 
-const adminSeedUsername = process.env.ADMIN_USERNAME ?? 'admin';
-const adminSeedPassword = process.env.ADMIN_PASSWORD ?? 'admin123456';
+const adminSeedUsername = env.ADMIN_USERNAME;
+const adminSeedPassword = env.ADMIN_PASSWORD;
 
 const ensureAppTables = async () => {
   await withConnection(async (connection) => {
@@ -526,7 +616,9 @@ const ensureAppTables = async () => {
     )) as Array<{ total: string | number }>;
 
     if (toNumber(userIsAdminColumnRows[0]?.total ?? 0) === 0) {
-      await connection.query(`ALTER TABLE ${userTable} ADD COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0`);
+      await connection.query(
+        `ALTER TABLE ${userTable} ADD COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0`,
+      );
     }
 
     await connection.query(`
@@ -614,7 +706,9 @@ const ensureAppTables = async () => {
 
 const seedDefaultAdmin = async () => {
   const existingAdmins = await withConnection(async (connection) => {
-    return (await connection.query(`SELECT id FROM ${userTable} WHERE is_admin = 1 LIMIT 1`)) as Array<{
+    return (await connection.query(
+      `SELECT id FROM ${userTable} WHERE is_admin = 1 LIMIT 1`,
+    )) as Array<{
       id: number;
     }>;
   });
@@ -870,29 +964,17 @@ app.get('/api/products/:id', async (req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const payload = asRecord(req.body);
-  const username = getString(payload.username).trim();
-  const password = getString(payload.password);
-  const nickname = normalizeOptionalText(payload.nickname);
-  const phone = normalizeOptionalText(payload.phone);
-
-  const usernameError = validateUsername(username);
-  if (usernameError) {
-    res.status(400).json({ message: usernameError });
-    return;
+  let payload: z.infer<typeof registerPayloadSchema>;
+  try {
+    payload = parseWithSchema(registerPayloadSchema, req.body);
+  } catch (error) {
+    if (isApiError(error)) {
+      res.status(error.status).json({ message: error.message });
+      return;
+    }
+    throw error;
   }
-
-  const passwordError = validatePassword(password);
-  if (passwordError) {
-    res.status(400).json({ message: passwordError });
-    return;
-  }
-
-  const phoneError = validatePhone(phone);
-  if (phoneError) {
-    res.status(400).json({ message: phoneError });
-    return;
-  }
+  const { username, password, nickname, phone } = payload;
 
   try {
     const existingUsers = await withConnection(async (connection) => {
@@ -928,6 +1010,10 @@ app.post('/api/auth/register', async (req, res) => {
 
     res.status(201).json({ message: '注册成功' });
   } catch (error) {
+    if (isApiError(error)) {
+      res.status(error.status).json({ message: error.message });
+      return;
+    }
     res.status(500).json({
       message: '注册失败',
       error: readErrorMessage(error),
@@ -936,14 +1022,17 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const payload = asRecord(req.body);
-  const username = getString(payload.username).trim();
-  const password = getString(payload.password);
-
-  if (username === '' || password === '') {
-    res.status(400).json({ message: '账号和密码不能为空' });
-    return;
+  let payload: z.infer<typeof loginPayloadSchema>;
+  try {
+    payload = parseWithSchema(loginPayloadSchema, req.body);
+  } catch (error) {
+    if (isApiError(error)) {
+      res.status(error.status).json({ message: error.message });
+      return;
+    }
+    throw error;
   }
+  const { username, password } = payload;
 
   try {
     const userRows = await withConnection(async (connection) => {
@@ -981,9 +1070,10 @@ app.post('/api/auth/login', async (req, res) => {
         `INSERT INTO ${sessionTable} (token, user_id, expires_at) VALUES (?, ?, ?)`,
         [token, user.id, expiresAt],
       );
-      await connection.query(`DELETE FROM ${sessionTable} WHERE user_id = ? AND expires_at <= NOW()`, [
-        user.id,
-      ]);
+      await connection.query(
+        `DELETE FROM ${sessionTable} WHERE user_id = ? AND expires_at <= NOW()`,
+        [user.id],
+      );
     });
 
     await appendSystemLogSafely({
@@ -1025,27 +1115,20 @@ app.get('/api/users/me', async (req, res) => {
 });
 
 app.put('/api/users/me', async (req, res) => {
-  const payload = asRecord(req.body);
-  const hasNickname = Object.prototype.hasOwnProperty.call(payload, 'nickname');
-  const hasPhone = Object.prototype.hasOwnProperty.call(payload, 'phone');
-  const nickname = normalizeOptionalText(payload.nickname);
-  const phone = normalizeOptionalText(payload.phone);
-
-  if (!hasNickname && !hasPhone) {
-    res.status(400).json({ message: '至少传入一个可更新字段' });
-    return;
+  let payload: z.infer<typeof profileUpdatePayloadSchema>;
+  try {
+    payload = parseWithSchema(profileUpdatePayloadSchema, req.body);
+  } catch (error) {
+    if (isApiError(error)) {
+      res.status(error.status).json({ message: error.message });
+      return;
+    }
+    throw error;
   }
-
-  if (nickname !== null && nickname.length > 128) {
-    res.status(400).json({ message: '昵称最长 128 个字符' });
-    return;
-  }
-
-  const phoneError = validatePhone(phone);
-  if (hasPhone && phoneError) {
-    res.status(400).json({ message: phoneError });
-    return;
-  }
+  const hasNickname = payload.nickname !== undefined;
+  const hasPhone = payload.phone !== undefined;
+  const nickname = hasNickname ? parseWithSchema(nullableNicknameSchema, payload.nickname) : null;
+  const phone = hasPhone ? parseWithSchema(nullablePhoneSchema, payload.phone) : null;
 
   try {
     const auth = await requireAuth(req.header('authorization'));
@@ -1089,20 +1172,17 @@ app.put('/api/users/me', async (req, res) => {
 });
 
 app.put('/api/users/me/password', async (req, res) => {
-  const payload = asRecord(req.body);
-  const currentPassword = getString(payload.currentPassword);
-  const newPassword = getString(payload.newPassword);
-
-  if (currentPassword === '' || newPassword === '') {
-    res.status(400).json({ message: '当前密码和新密码不能为空' });
-    return;
+  let payload: z.infer<typeof passwordUpdatePayloadSchema>;
+  try {
+    payload = parseWithSchema(passwordUpdatePayloadSchema, req.body);
+  } catch (error) {
+    if (isApiError(error)) {
+      res.status(error.status).json({ message: error.message });
+      return;
+    }
+    throw error;
   }
-
-  const passwordError = validatePassword(newPassword);
-  if (passwordError) {
-    res.status(400).json({ message: passwordError });
-    return;
-  }
+  const { currentPassword, newPassword } = payload;
 
   try {
     const auth = await requireAuth(req.header('authorization'));
@@ -1197,14 +1277,17 @@ app.get('/api/cart', async (req, res) => {
 });
 
 app.post('/api/cart/items', async (req, res) => {
-  const payload = asRecord(req.body);
-  const productId = getString(payload.productId).trim();
-  const quantity = toPositiveInt(payload.quantity) ?? 1;
-
-  if (productId === '') {
-    res.status(400).json({ message: '商品编号不能为空' });
-    return;
+  let payload: z.infer<typeof cartAddPayloadSchema>;
+  try {
+    payload = parseWithSchema(cartAddPayloadSchema, req.body);
+  } catch (error) {
+    if (isApiError(error)) {
+      res.status(error.status).json({ message: error.message });
+      return;
+    }
+    throw error;
   }
+  const { productId, quantity } = payload;
 
   try {
     const auth = await requireAuth(req.header('authorization'));
@@ -1246,11 +1329,10 @@ app.post('/api/cart/items', async (req, res) => {
         throw new ApiError(400, '加入数量超过库存');
       }
 
-      await connection.query(`UPDATE ${cartTable} SET quantity = ? WHERE user_id = ? AND product_id = ?`, [
-        nextQuantity,
-        auth.user.id,
-        productId,
-      ]);
+      await connection.query(
+        `UPDATE ${cartTable} SET quantity = ? WHERE user_id = ? AND product_id = ?`,
+        [nextQuantity, auth.user.id, productId],
+      );
     });
 
     res.status(201).json({ message: '已加入购物车' });
@@ -1268,12 +1350,17 @@ app.post('/api/cart/items', async (req, res) => {
 
 app.put('/api/cart/items/:productId', async (req, res) => {
   const { productId } = req.params;
-  const payload = asRecord(req.body);
-  const quantity = toPositiveInt(payload.quantity);
-  if (quantity === null) {
-    res.status(400).json({ message: '数量必须为正整数' });
-    return;
+  let payload: z.infer<typeof cartUpdatePayloadSchema>;
+  try {
+    payload = parseWithSchema(cartUpdatePayloadSchema, req.body);
+  } catch (error) {
+    if (isApiError(error)) {
+      res.status(error.status).json({ message: error.message });
+      return;
+    }
+    throw error;
   }
+  const { quantity } = payload;
 
   try {
     const auth = await requireAuth(req.header('authorization'));
@@ -1547,9 +1634,10 @@ app.post('/api/orders/:orderNo/pay', async (req, res) => {
           item.product_id,
         ]);
       }
-      await connection.query(`UPDATE ${orderTable} SET status = 'PAID', paid_at = NOW() WHERE id = ?`, [
-        order.id,
-      ]);
+      await connection.query(
+        `UPDATE ${orderTable} SET status = 'PAID', paid_at = NOW() WHERE id = ?`,
+        [order.id],
+      );
       await connection.commit();
 
       await appendSystemLogSafely({
@@ -1633,7 +1721,9 @@ app.get('/api/admin/categories', async (req, res) => {
     }
 
     const rows = await withConnection(async (connection) => {
-      return (await connection.query(`SELECT id, name FROM ${categoryTable} ORDER BY name`)) as CategoryRow[];
+      return (await connection.query(
+        `SELECT id, name FROM ${categoryTable} ORDER BY name`,
+      )) as CategoryRow[];
     });
     res.json({
       total: rows.length,
@@ -1648,12 +1738,17 @@ app.get('/api/admin/categories', async (req, res) => {
 });
 
 app.post('/api/admin/categories', async (req, res) => {
-  const payload = asRecord(req.body);
-  const name = getString(payload.name).trim();
-  if (name === '') {
-    res.status(400).json({ message: '分类名称不能为空' });
-    return;
+  let payload: z.infer<typeof adminCategoryCreatePayloadSchema>;
+  try {
+    payload = parseWithSchema(adminCategoryCreatePayloadSchema, req.body);
+  } catch (error) {
+    if (isApiError(error)) {
+      res.status(error.status).json({ message: error.message });
+      return;
+    }
+    throw error;
   }
+  const { name } = payload;
 
   try {
     const adminAuth = await requireAdminAuth(req.header('authorization'));
@@ -1663,9 +1758,10 @@ app.post('/api/admin/categories', async (req, res) => {
     }
 
     await withConnection(async (connection) => {
-      const exists = (await connection.query(`SELECT id FROM ${categoryTable} WHERE name = ? LIMIT 1`, [
-        name,
-      ])) as Array<{ id: number }>;
+      const exists = (await connection.query(
+        `SELECT id FROM ${categoryTable} WHERE name = ? LIMIT 1`,
+        [name],
+      )) as Array<{ id: number }>;
       if (exists.length > 0) {
         throw new ApiError(409, '分类已存在');
       }
@@ -1706,9 +1802,10 @@ app.delete('/api/admin/categories/:id', async (req, res) => {
     }
 
     await withConnection(async (connection) => {
-      const categoryRows = (await connection.query(`SELECT name FROM ${categoryTable} WHERE id = ? LIMIT 1`, [
-        categoryId,
-      ])) as Array<{ name: string }>;
+      const categoryRows = (await connection.query(
+        `SELECT name FROM ${categoryTable} WHERE id = ? LIMIT 1`,
+        [categoryId],
+      )) as Array<{ name: string }>;
       const category = categoryRows[0];
       if (!category) {
         throw new ApiError(404, '分类不存在');
@@ -1787,26 +1884,17 @@ app.get('/api/admin/products', async (req, res) => {
 });
 
 app.post('/api/admin/products', async (req, res) => {
-  const payload = asRecord(req.body);
-  const id = getString(payload.id).trim();
-  const name = getString(payload.name).trim();
-  const category = getString(payload.category).trim();
-  const description = getString(payload.description).trim();
-  const price = Number(payload.price);
-  const stock = Number(payload.stock);
-
-  if (id === '' || name === '' || category === '' || description === '') {
-    res.status(400).json({ message: '商品信息不完整' });
-    return;
+  let payload: z.infer<typeof adminProductCreatePayloadSchema>;
+  try {
+    payload = parseWithSchema(adminProductCreatePayloadSchema, req.body);
+  } catch (error) {
+    if (isApiError(error)) {
+      res.status(error.status).json({ message: error.message });
+      return;
+    }
+    throw error;
   }
-  if (!Number.isFinite(price) || price <= 0) {
-    res.status(400).json({ message: '商品价格必须大于 0' });
-    return;
-  }
-  if (!Number.isInteger(stock) || stock < 0) {
-    res.status(400).json({ message: '库存必须是非负整数' });
-    return;
-  }
+  const { id, name, category, description, price, stock } = payload;
 
   try {
     const adminAuth = await requireAdminAuth(req.header('authorization'));
@@ -1865,9 +1953,10 @@ app.delete('/api/admin/products/:id', async (req, res) => {
     }
 
     await withConnection(async (connection) => {
-      const exists = (await connection.query(`SELECT id FROM ${productTable} WHERE id = ? LIMIT 1`, [
-        id,
-      ])) as Array<{ id: string }>;
+      const exists = (await connection.query(
+        `SELECT id FROM ${productTable} WHERE id = ? LIMIT 1`,
+        [id],
+      )) as Array<{ id: string }>;
       if (exists.length === 0) {
         throw new ApiError(404, '商品不存在');
       }
@@ -1995,32 +2084,24 @@ app.put('/api/admin/users/:id', async (req, res) => {
     return;
   }
 
-  const payload = asRecord(req.body);
-  const hasNickname = Object.prototype.hasOwnProperty.call(payload, 'nickname');
-  const hasPhone = Object.prototype.hasOwnProperty.call(payload, 'phone');
-  const hasBalance = Object.prototype.hasOwnProperty.call(payload, 'balance');
-  const hasIsAdmin = Object.prototype.hasOwnProperty.call(payload, 'isAdmin');
-  const nickname = normalizeOptionalText(payload.nickname);
-  const phone = normalizeOptionalText(payload.phone);
-  const balance = Number(payload.balance);
-  const isAdmin = payload.isAdmin === true || payload.isAdmin === 1;
-
-  if (!hasNickname && !hasPhone && !hasBalance && !hasIsAdmin) {
-    res.status(400).json({ message: '至少传入一个更新字段' });
-    return;
-  }
-
-  if (hasPhone) {
-    const phoneError = validatePhone(phone);
-    if (phoneError) {
-      res.status(400).json({ message: phoneError });
+  let payload: z.infer<typeof adminUserUpdatePayloadSchema>;
+  try {
+    payload = parseWithSchema(adminUserUpdatePayloadSchema, req.body);
+  } catch (error) {
+    if (isApiError(error)) {
+      res.status(error.status).json({ message: error.message });
       return;
     }
+    throw error;
   }
-  if (hasBalance && (!Number.isFinite(balance) || balance < 0)) {
-    res.status(400).json({ message: '余额必须是非负数' });
-    return;
-  }
+  const hasNickname = payload.nickname !== undefined;
+  const hasPhone = payload.phone !== undefined;
+  const hasBalance = payload.balance !== undefined;
+  const hasIsAdmin = payload.isAdmin !== undefined;
+  const nickname = hasNickname ? parseWithSchema(nullableNicknameSchema, payload.nickname) : null;
+  const phone = hasPhone ? parseWithSchema(nullablePhoneSchema, payload.phone) : null;
+  const balance = payload.balance ?? 0;
+  const isAdmin = payload.isAdmin === true || payload.isAdmin === 1;
 
   try {
     const adminAuth = await requireAdminAuth(req.header('authorization'));
@@ -2050,7 +2131,10 @@ app.put('/api/admin/users/:id', async (req, res) => {
     params.push(userId);
 
     await withConnection(async (connection) => {
-      const result = await connection.query(`UPDATE ${userTable} SET ${updates.join(', ')} WHERE id = ?`, params);
+      const result = await connection.query(
+        `UPDATE ${userTable} SET ${updates.join(', ')} WHERE id = ?`,
+        params,
+      );
       if ((result as { affectedRows?: number }).affectedRows === 0) {
         throw new ApiError(404, '用户不存在');
       }
@@ -2078,8 +2162,17 @@ app.put('/api/admin/users/:id', async (req, res) => {
 });
 
 app.get('/api/admin/system/logs', async (req, res) => {
-  const limit = Number(req.query.limit);
-  const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 200) : 50;
+  let query: z.infer<typeof adminSystemLogsQuerySchema>;
+  try {
+    query = parseWithSchema(adminSystemLogsQuerySchema, req.query);
+  } catch (error) {
+    if (isApiError(error)) {
+      res.status(error.status).json({ message: error.message });
+      return;
+    }
+    throw error;
+  }
+  const normalizedLimit = query.limit;
 
   try {
     const adminAuth = await requireAdminAuth(req.header('authorization'));
