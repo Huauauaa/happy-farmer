@@ -75,6 +75,8 @@ jdbc:mariadb://localhost:3306/farmer?useSSL=false&serverTimezone=Asia/Shanghai&c
 - `DB_USER`：数据库用户名（默认 `root`）
 - `DB_PASSWORD`：数据库密码（默认空字符串）
 - `PRODUCT_TABLE`：商品表名（默认 `products`）
+- `USER_TABLE`：用户表名（默认 `users`）
+- `USER_SESSION_TABLE`：登录会话表名（默认 `user_sessions`）
 
 示例表结构（供搜索与详情接口使用）：
 
@@ -86,6 +88,33 @@ CREATE TABLE products (
   price DECIMAL(10, 2) NOT NULL,
   stock INT NOT NULL DEFAULT 0,
   description TEXT NOT NULL
+);
+```
+
+认证相关表（后端会在启动时自动创建，亦可手动创建）：
+
+```sql
+CREATE TABLE users (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  username VARCHAR(64) NOT NULL UNIQUE,
+  password_hash CHAR(128) NOT NULL,
+  password_salt CHAR(32) NOT NULL,
+  nickname VARCHAR(128) NULL,
+  phone VARCHAR(32) NULL,
+  balance DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE user_sessions (
+  token CHAR(64) PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_user_sessions_user_id (user_id),
+  INDEX idx_user_sessions_expires_at (expires_at),
+  CONSTRAINT fk_user_sessions_user
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 ```
 
@@ -130,6 +159,39 @@ CREATE TABLE products (
 ### `GET /api/products/:id`
 
 查询单个商品详情（包含商品描述）。
+
+### `POST /api/auth/register`
+
+用户注册。示例请求体：
+
+```json
+{
+  "username": "demo_user",
+  "password": "12345678",
+  "nickname": "演示用户",
+  "phone": "13800001111"
+}
+```
+
+### `POST /api/auth/login`
+
+用户登录，成功后返回 `token`（Bearer Token）。
+
+### `GET /api/users/me`
+
+获取当前登录用户信息。请求头：
+
+```text
+Authorization: Bearer <token>
+```
+
+### `PUT /api/users/me`
+
+更新当前用户资料（昵称、手机号）。
+
+### `PUT /api/users/me/password`
+
+修改当前用户密码。
 
 ## 业务功能介绍（需求）
 
@@ -212,4 +274,5 @@ pnpm build
 - 游客模式商品搜索：可按商品名称查询商品
 - 商品列表展示：分类、价格、库存信息
 - 商品详情查看：可查看商品编号、库存、描述等信息
-- 提供后端健康检查与商品查询/详情接口
+- 用户注册、登录、查看并更新个人资料、修改密码
+- 提供后端健康检查、商品接口与用户认证接口
