@@ -28,13 +28,22 @@ const createProps = (overrides: Partial<ComponentProps<typeof ProductsTab>> = {}
   ...overrides,
 });
 
+const getButtonByText = (text: string) => {
+  const button = screen
+    .getAllByRole('button')
+    .find((candidate) => candidate.textContent?.replaceAll(/\s+/g, '') === text);
+
+  expect(button).toBeDefined();
+  return button!;
+};
+
 describe('ProductsTab', () => {
   it('calls fetchProducts with current filters when search button is clicked', () => {
     const props = createProps();
 
     render(<ProductsTab {...props} />);
 
-    fireEvent.click(screen.getByText(/搜\s*索/).closest('button')!);
+    fireEvent.click(getButtonByText('搜索'));
 
     expect(props.fetchProducts).toHaveBeenCalledWith('苹果', '水果');
   });
@@ -47,7 +56,7 @@ describe('ProductsTab', () => {
     fireEvent.change(screen.getByPlaceholderText('请输入商品名称，例如：苹果'), {
       target: { value: '香蕉' },
     });
-    fireEvent.click(screen.getByText(/查\s*看详情/).closest('button')!);
+    fireEvent.click(getButtonByText('查看详情'));
 
     expect(props.setKeyword).toHaveBeenCalledWith('香蕉');
     expect(props.fetchProductDetail).toHaveBeenCalledWith('apple-1');
@@ -59,7 +68,7 @@ describe('ProductsTab', () => {
     render(<ProductsTab {...props} />);
 
     expect(screen.getByText('登录后可将商品加入购物车')).toBeInTheDocument();
-    expect(screen.getByText(/加\s*入购物车/).closest('button')).toBeDisabled();
+    expect(getButtonByText('加入购物车')).toBeDisabled();
   });
 
   it('adds the current product to cart for logged in users', () => {
@@ -67,7 +76,7 @@ describe('ProductsTab', () => {
 
     render(<ProductsTab {...props} />);
 
-    fireEvent.click(screen.getByText(/加\s*入购物车/).closest('button')!);
+    fireEvent.click(getButtonByText('加入购物车'));
 
     expect(props.handleAddToCart).toHaveBeenCalledWith('apple-1');
   });
