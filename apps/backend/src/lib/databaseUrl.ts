@@ -10,6 +10,22 @@ const workspaceRoot = resolve(backendRoot, '..', '..');
 const defaultJdbcUrl =
   'jdbc:mariadb://localhost:3306/farmer?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8';
 
+const normalizeDatabaseUrl = (rawUrl: string, sourceName: string): string => {
+  const normalized = rawUrl.startsWith('jdbc:') ? rawUrl.slice('jdbc:'.length) : rawUrl;
+  const url = new URL(normalized);
+
+  if (url.protocol === 'mariadb:') {
+    // Prisma expects MySQL-style connection strings for MariaDB.
+    url.protocol = 'mysql:';
+  }
+
+  if (url.protocol !== 'mysql:') {
+    throw new Error(`Unsupported protocol in ${sourceName}: ${url.protocol}`);
+  }
+
+  return url.toString();
+};
+
 export const loadBackendEnv = () => {
   const dotenvPaths = [
     resolve(process.cwd(), '.env'),
@@ -30,15 +46,10 @@ export const loadBackendEnv = () => {
 export const resolveDatabaseUrl = (source: NodeJS.ProcessEnv = process.env): string => {
   const explicitUrl = source.DATABASE_URL?.trim();
   if (explicitUrl) {
-    return explicitUrl;
+    return normalizeDatabaseUrl(explicitUrl, 'DATABASE_URL');
   }
 
-  const jdbcUrl = source.DB_JDBC_URL?.trim() || defaultJdbcUrl;
-  const normalized = jdbcUrl.startsWith('jdbc:') ? jdbcUrl.slice('jdbc:'.length) : jdbcUrl;
-  const url = new URL(normalized);
-  if (url.protocol !== 'mariadb:') {
-    throw new Error(`Unsupported protocol in DB_JDBC_URL: ${url.protocol}`);
-  }
+  const url = new URL(normalizeDatabaseUrl(source.DB_JDBC_URL?.trim() || defaultJdbcUrl, 'DB_JDBC_URL'));
 
   if (source.DB_USER?.trim()) {
     url.username = source.DB_USER.trim();
