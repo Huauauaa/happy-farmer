@@ -1,0 +1,15 @@
+.git
+.gitignore
+node_modules
+apps/*/node_modules
+dist
+apps/*/dist
+coverage
+.env
+.env.*
+!.env.example
+npm-debug.log*
+pnpm-debug.log*
+.DS_Store
+.idea
+.vscode
