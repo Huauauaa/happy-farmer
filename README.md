@@ -41,6 +41,65 @@
 pnpm install
 ```
 
+## Docker 部署
+
+项目已支持通过 Docker Compose 一键部署前端、后端和 MariaDB。
+
+### 1. 准备环境变量
+
+可先复制示例配置：
+
+```bash
+cp .env.example .env
+```
+
+如需调整数据库密码、端口或管理员账号，请修改根目录 `.env`。
+
+### 2. 构建并启动
+
+在仓库根目录执行：
+
+```bash
+docker compose up -d --build
+```
+
+默认会启动以下服务：
+
+- `frontend`：Nginx 托管前端页面，并将 `/api` 反向代理到后端
+- `backend`：Node.js + Express API 服务
+- `db`：MariaDB 11
+
+默认访问地址：
+
+- 前端首页：`http://localhost`
+- 后端接口：`http://localhost:3001`
+- MariaDB：`localhost:3306`
+
+### 3. 停止服务
+
+```bash
+docker compose down
+```
+
+如需同时删除数据库数据卷：
+
+```bash
+docker compose down -v
+```
+
+### 4. 查看日志
+
+```bash
+docker compose logs -f
+```
+
+### Docker 部署说明
+
+- 前端容器使用 Nginx 托管构建产物，并支持 SPA 路由刷新
+- 前端的 `/api/*` 请求会在容器内转发到 `backend:3001`
+- 后端容器会通过 `DB_JDBC_URL` 连接到 Compose 内的 `db` 服务
+- 当前仓库未内置商品初始化 SQL，首次部署后如需完整业务数据，请自行导入商品与分类数据
+
 ## 本地开发
 
 ### 同时启动前后端
