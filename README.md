@@ -455,6 +455,36 @@ pnpm build
 - `pnpm --filter @happy-farmer/frontend dev`
 - `pnpm --filter @happy-farmer/frontend build`
 - `pnpm --filter @happy-farmer/frontend preview`
+- `pnpm --filter @happy-farmer/frontend test:e2e`
+
+## E2E 测试（Playwright）
+
+仓库已接入 Playwright，测试文件位于 `apps/frontend/e2e`。
+
+首次使用时请先安装浏览器：
+
+```bash
+pnpm test:e2e:install
+```
+
+运行方式：
+
+```bash
+pnpm test:e2e
+```
+
+如需查看 UI 模式或有头浏览器：
+
+```bash
+pnpm test:e2e:ui
+pnpm test:e2e:headed
+```
+
+说明：
+
+- Playwright 会自动启动前端 Vite 开发服务（默认 `http://127.0.0.1:4173`）
+- 当前示例 e2e 通过 mock `/api/*` 响应验证前端关键流程，因此不依赖后端服务或 MariaDB
+- 生成的 `playwright-report`、`test-results` 等产物已加入 `.gitignore`
 
 ## 当前功能
 
