@@ -9,6 +9,7 @@
     "dev:backend": "pnpm --filter @happy-farmer/backend dev",
     "build": "pnpm -r build",
     "test": "pnpm --filter @happy-farmer/frontend test",
+    "test:backend": "pnpm --filter @happy-farmer/backend test",
     "test:frontend": "pnpm --filter @happy-farmer/frontend test",
     "test:e2e": "pnpm --filter @happy-farmer/frontend test:e2e",
     "test:e2e:headed": "pnpm --filter @happy-farmer/frontend test:e2e:headed",
