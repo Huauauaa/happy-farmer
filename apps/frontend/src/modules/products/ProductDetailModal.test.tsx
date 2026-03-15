@@ -58,7 +58,10 @@ describe('ProductDetailModal', () => {
     expect(screen.getByText('价格：¥12.50')).toBeInTheDocument();
     expect(screen.getByText('商品介绍：甜脆多汁，适合直接食用。')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('Close'));
+    const closeButton = document.querySelector('.ant-modal-close');
+
+    expect(closeButton).not.toBeNull();
+    fireEvent.click(closeButton!);
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });

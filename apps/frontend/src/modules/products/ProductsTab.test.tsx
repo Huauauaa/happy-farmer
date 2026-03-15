@@ -34,7 +34,7 @@ describe('ProductsTab', () => {
 
     render(<ProductsTab {...props} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '搜索' }));
+    fireEvent.click(screen.getByText(/搜\s*索/).closest('button')!);
 
     expect(props.fetchProducts).toHaveBeenCalledWith('苹果', '水果');
   });
@@ -47,7 +47,7 @@ describe('ProductsTab', () => {
     fireEvent.change(screen.getByPlaceholderText('请输入商品名称，例如：苹果'), {
       target: { value: '香蕉' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '查看详情' }));
+    fireEvent.click(screen.getByText(/查\s*看详情/).closest('button')!);
 
     expect(props.setKeyword).toHaveBeenCalledWith('香蕉');
     expect(props.fetchProductDetail).toHaveBeenCalledWith('apple-1');
@@ -59,7 +59,7 @@ describe('ProductsTab', () => {
     render(<ProductsTab {...props} />);
 
     expect(screen.getByText('登录后可将商品加入购物车')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '加入购物车' })).toBeDisabled();
+    expect(screen.getByText(/加\s*入购物车/).closest('button')).toBeDisabled();
   });
 
   it('adds the current product to cart for logged in users', () => {
@@ -67,7 +67,7 @@ describe('ProductsTab', () => {
 
     render(<ProductsTab {...props} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '加入购物车' }));
+    fireEvent.click(screen.getByText(/加\s*入购物车/).closest('button')!);
 
     expect(props.handleAddToCart).toHaveBeenCalledWith('apple-1');
   });
