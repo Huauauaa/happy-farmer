@@ -13,7 +13,7 @@ test('guest can search products and open the detail modal', async ({ page }) => 
   await expect(page.getByText('有机生菜')).toBeVisible();
 
   await page.getByPlaceholder('请输入商品名称，例如：苹果').fill('苹果');
-  await page.getByRole('button', { name: '搜索' }).click();
+  await page.getByRole('button', { name: /搜\s*索/ }).click();
 
   await expect(page.getByText('精品红富士苹果')).toBeVisible();
   await expect(page.getByText('有机生菜')).toHaveCount(0);
