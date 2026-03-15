@@ -25,6 +25,33 @@ const normalizeDatabaseUrl = (rawUrl, sourceName) => {
   return url.toString();
 };
 
+const applyDatabaseCredentials = (url) => {
+  const explicitUsername = process.env.DB_USER?.trim();
+  const resolvedUsername = explicitUsername || url.username || 'root';
+  url.username = resolvedUsername;
+
+  if (process.env.DB_PASSWORD !== undefined) {
+    url.password = process.env.DB_PASSWORD;
+    return;
+  }
+
+  if (url.password !== '') {
+    return;
+  }
+
+  if (resolvedUsername === 'root' && process.env.MARIADB_ROOT_PASSWORD !== undefined) {
+    url.password = process.env.MARIADB_ROOT_PASSWORD;
+  }
+};
+
+const applyDatabaseOptions = (url) => {
+  applyDatabaseCredentials(url);
+
+  if (process.env.DB_CONNECTION_LIMIT?.trim() && !url.searchParams.has('connection_limit')) {
+    url.searchParams.set('connection_limit', process.env.DB_CONNECTION_LIMIT.trim());
+  }
+};
+
 const loadBackendEnv = () => {
   const dotenvPaths = [
     resolve(process.cwd(), '.env'),
@@ -44,23 +71,16 @@ const loadBackendEnv = () => {
 
 const ensureDatabaseUrl = () => {
   if (process.env.DATABASE_URL?.trim()) {
-    process.env.DATABASE_URL = normalizeDatabaseUrl(process.env.DATABASE_URL.trim(), 'DATABASE_URL');
+    const url = new URL(normalizeDatabaseUrl(process.env.DATABASE_URL.trim(), 'DATABASE_URL'));
+    applyDatabaseOptions(url);
+    process.env.DATABASE_URL = url.toString();
     return;
   }
 
   const url = new URL(
     normalizeDatabaseUrl(process.env.DB_JDBC_URL?.trim() || defaultJdbcUrl, 'DB_JDBC_URL'),
   );
-
-  if (process.env.DB_USER?.trim()) {
-    url.username = process.env.DB_USER.trim();
-  }
-  if (process.env.DB_PASSWORD !== undefined) {
-    url.password = process.env.DB_PASSWORD;
-  }
-  if (process.env.DB_CONNECTION_LIMIT?.trim() && !url.searchParams.has('connection_limit')) {
-    url.searchParams.set('connection_limit', process.env.DB_CONNECTION_LIMIT.trim());
-  }
+  applyDatabaseOptions(url);
 
   process.env.DATABASE_URL = url.toString();
 };

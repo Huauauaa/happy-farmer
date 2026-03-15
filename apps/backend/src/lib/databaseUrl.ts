@@ -26,6 +26,33 @@ const normalizeDatabaseUrl = (rawUrl: string, sourceName: string): string => {
   return url.toString();
 };
 
+const applyDatabaseCredentials = (url: URL, source: NodeJS.ProcessEnv) => {
+  const explicitUsername = source.DB_USER?.trim();
+  const resolvedUsername = explicitUsername || url.username || 'root';
+  url.username = resolvedUsername;
+
+  if (source.DB_PASSWORD !== undefined) {
+    url.password = source.DB_PASSWORD;
+    return;
+  }
+
+  if (url.password !== '') {
+    return;
+  }
+
+  if (resolvedUsername === 'root' && source.MARIADB_ROOT_PASSWORD !== undefined) {
+    url.password = source.MARIADB_ROOT_PASSWORD;
+  }
+};
+
+const applyDatabaseOptions = (url: URL, source: NodeJS.ProcessEnv) => {
+  applyDatabaseCredentials(url, source);
+
+  if (source.DB_CONNECTION_LIMIT?.trim() && !url.searchParams.has('connection_limit')) {
+    url.searchParams.set('connection_limit', source.DB_CONNECTION_LIMIT.trim());
+  }
+};
+
 export const loadBackendEnv = () => {
   const dotenvPaths = [
     resolve(process.cwd(), '.env'),
@@ -46,20 +73,13 @@ export const loadBackendEnv = () => {
 export const resolveDatabaseUrl = (source: NodeJS.ProcessEnv = process.env): string => {
   const explicitUrl = source.DATABASE_URL?.trim();
   if (explicitUrl) {
-    return normalizeDatabaseUrl(explicitUrl, 'DATABASE_URL');
+    const url = new URL(normalizeDatabaseUrl(explicitUrl, 'DATABASE_URL'));
+    applyDatabaseOptions(url, source);
+    return url.toString();
   }
 
   const url = new URL(normalizeDatabaseUrl(source.DB_JDBC_URL?.trim() || defaultJdbcUrl, 'DB_JDBC_URL'));
-
-  if (source.DB_USER?.trim()) {
-    url.username = source.DB_USER.trim();
-  }
-  if (source.DB_PASSWORD !== undefined) {
-    url.password = source.DB_PASSWORD;
-  }
-  if (source.DB_CONNECTION_LIMIT?.trim() && !url.searchParams.has('connection_limit')) {
-    url.searchParams.set('connection_limit', source.DB_CONNECTION_LIMIT.trim());
-  }
+  applyDatabaseOptions(url, source);
 
   return url.toString();
 };
