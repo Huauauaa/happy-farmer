@@ -17,9 +17,9 @@ test('visitor can register, login, update profile, and logout', async ({ page })
   await page.getByRole('button', { name: /注\s*册/ }).click();
 
   await expect(page.getByText('注册成功，请登录')).toBeVisible();
-  await expect(page.getByPlaceholder('账号')).toHaveValue('playwright_user');
+  await expect(page.locator('input[placeholder="账号"]')).toHaveValue('playwright_user');
 
-  await page.getByPlaceholder('密码').fill('playwright-pass');
+  await page.locator('input[placeholder="密码"]').fill('playwright-pass');
   await page.getByRole('button', { name: /登\s*录/ }).click();
 
   await expect(page.getByText('账号：playwright_user')).toBeVisible();
