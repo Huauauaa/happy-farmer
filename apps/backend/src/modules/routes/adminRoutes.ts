@@ -1,7 +1,8 @@
+import type { Prisma } from '@prisma/client';
 import type { AppContext } from '../AppContext.js';
 
 export const registerAdminRoutes = (context: AppContext) => {
-  const { app, tableNames, db, auth, schemas, helpers, mappers, ApiError } = context;
+  const { app, prisma, db, auth, schemas, helpers, mappers, ApiError } = context;
 
   app.get('/api/admin/categories', async (req, res) => {
     try {
@@ -11,11 +12,16 @@ export const registerAdminRoutes = (context: AppContext) => {
         return;
       }
 
-      const rows = await db.withConnection(async (connection) => {
-        return (await connection.query(
-          `SELECT id, name FROM ${tableNames.categoryTable} ORDER BY name`,
-        )) as Array<{ id: string | number; name: string }>;
+      const rows = await prisma.productCategory.findMany({
+        select: {
+          id: true,
+          name: true,
+        },
+        orderBy: {
+          name: 'asc',
+        },
       });
+
       res.json({
         total: rows.length,
         items: rows.map((row) => ({ id: String(row.id), name: row.name })),
@@ -39,6 +45,7 @@ export const registerAdminRoutes = (context: AppContext) => {
       }
       throw error;
     }
+
     const { name } = payload;
 
     try {
@@ -48,16 +55,18 @@ export const registerAdminRoutes = (context: AppContext) => {
         return;
       }
 
-      await db.withConnection(async (connection) => {
-        const exists = (await connection.query(
-          `SELECT id FROM ${tableNames.categoryTable} WHERE name = ? LIMIT 1`,
-          [name],
-        )) as Array<{ id: number }>;
-        if (exists.length > 0) {
-          throw new ApiError(409, '分类已存在');
-        }
-        await connection.query(`INSERT INTO ${tableNames.categoryTable} (name) VALUES (?)`, [name]);
+      const existingCategory = await prisma.productCategory.findUnique({
+        where: { name },
+        select: { id: true },
       });
+      if (existingCategory) {
+        throw new ApiError(409, '分类已存在');
+      }
+
+      await prisma.productCategory.create({
+        data: { name },
+      });
+
       await db.appendSystemLogSafely({
         level: 'INFO',
         module: 'admin.category',
@@ -65,6 +74,7 @@ export const registerAdminRoutes = (context: AppContext) => {
         message: `管理员新增分类: ${name}`,
         actorUserId: adminAuth.user.id,
       });
+
       res.status(201).json({ message: '分类创建成功' });
     } catch (error) {
       if (helpers.isApiError(error)) {
@@ -92,25 +102,27 @@ export const registerAdminRoutes = (context: AppContext) => {
         return;
       }
 
-      await db.withConnection(async (connection) => {
-        const categoryRows = (await connection.query(
-          `SELECT name FROM ${tableNames.categoryTable} WHERE id = ? LIMIT 1`,
-          [categoryId],
-        )) as Array<{ name: string }>;
-        const category = categoryRows[0];
-        if (!category) {
-          throw new ApiError(404, '分类不存在');
-        }
+      const category = await prisma.productCategory.findUnique({
+        where: { id: BigInt(categoryId) },
+        select: {
+          name: true,
+        },
+      });
+      if (!category) {
+        throw new ApiError(404, '分类不存在');
+      }
 
-        const productCountRows = (await connection.query(
-          `SELECT COUNT(1) AS total FROM ${tableNames.productTable} WHERE category = ?`,
-          [category.name],
-        )) as Array<{ total: string | number }>;
-        if (helpers.toNumber(productCountRows[0]?.total ?? 0) > 0) {
-          throw new ApiError(400, '分类下存在商品，无法删除');
-        }
+      const productCount = await prisma.product.count({
+        where: {
+          category: category.name,
+        },
+      });
+      if (productCount > 0) {
+        throw new ApiError(400, '分类下存在商品，无法删除');
+      }
 
-        await connection.query(`DELETE FROM ${tableNames.categoryTable} WHERE id = ?`, [categoryId]);
+      await prisma.productCategory.delete({
+        where: { id: BigInt(categoryId) },
       });
 
       await db.appendSystemLogSafely({
@@ -144,22 +156,29 @@ export const registerAdminRoutes = (context: AppContext) => {
 
       const keyword = helpers.getQueryText(req.query.keyword);
       const category = helpers.getQueryText(req.query.category);
-      const conditions: string[] = [];
-      const params: string[] = [];
+      const where: Prisma.ProductWhereInput = {};
       if (keyword !== '') {
-        conditions.push('name LIKE ?');
-        params.push(`%${keyword}%`);
+        where.name = {
+          contains: keyword,
+        };
       }
       if (category !== '') {
-        conditions.push('category = ?');
-        params.push(category);
+        where.category = category;
       }
-      const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
-      const rows = await db.withConnection(async (connection) => {
-        return (await connection.query(
-          `SELECT id, name, category, price, stock, description FROM ${tableNames.productTable}${whereClause} ORDER BY id`,
-          params,
-        )) as any[];
+
+      const rows = await prisma.product.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          category: true,
+          price: true,
+          stock: true,
+          description: true,
+        },
+        orderBy: {
+          id: 'asc',
+        },
       });
 
       res.json({
@@ -185,6 +204,7 @@ export const registerAdminRoutes = (context: AppContext) => {
       }
       throw error;
     }
+
     const { id, name, category, description, price, stock } = payload;
 
     try {
@@ -194,24 +214,33 @@ export const registerAdminRoutes = (context: AppContext) => {
         return;
       }
 
-      await db.withConnection(async (connection) => {
-        const duplicatedRows = (await connection.query(
-          `SELECT id FROM ${tableNames.productTable} WHERE id = ? OR name = ? LIMIT 1`,
-          [id, name],
-        )) as Array<{ id: string }>;
-        if (duplicatedRows.length > 0) {
-          throw new ApiError(409, '商品已存在，不能重复添加');
-        }
-
-        await connection.query(
-          `
-          INSERT INTO ${tableNames.productTable} (id, name, category, price, stock, description)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `,
-          [id, name, category, price, stock, description],
-        );
-        await connection.query(`INSERT IGNORE INTO ${tableNames.categoryTable} (name) VALUES (?)`, [category]);
+      const duplicatedProduct = await prisma.product.findFirst({
+        where: {
+          OR: [{ id }, { name }],
+        },
+        select: { id: true },
       });
+      if (duplicatedProduct) {
+        throw new ApiError(409, '商品已存在，不能重复添加');
+      }
+
+      await prisma.$transaction([
+        prisma.product.create({
+          data: {
+            id,
+            name,
+            category,
+            description,
+            price,
+            stock,
+          },
+        }),
+        prisma.productCategory.upsert({
+          where: { name: category },
+          update: {},
+          create: { name: category },
+        }),
+      ]);
 
       await db.appendSystemLogSafely({
         level: 'INFO',
@@ -243,17 +272,22 @@ export const registerAdminRoutes = (context: AppContext) => {
         return;
       }
 
-      await db.withConnection(async (connection) => {
-        const exists = (await connection.query(
-          `SELECT id FROM ${tableNames.productTable} WHERE id = ? LIMIT 1`,
-          [id],
-        )) as Array<{ id: string }>;
-        if (exists.length === 0) {
-          throw new ApiError(404, '商品不存在');
-        }
-        await connection.query(`DELETE FROM ${tableNames.cartTable} WHERE product_id = ?`, [id]);
-        await connection.query(`DELETE FROM ${tableNames.productTable} WHERE id = ?`, [id]);
+      const existingProduct = await prisma.product.findUnique({
+        where: { id },
+        select: { id: true },
       });
+      if (!existingProduct) {
+        throw new ApiError(404, '商品不存在');
+      }
+
+      await prisma.$transaction([
+        prisma.cartItem.deleteMany({
+          where: { productId: id },
+        }),
+        prisma.product.delete({
+          where: { id },
+        }),
+      ]);
 
       await db.appendSystemLogSafely({
         level: 'INFO',
@@ -284,39 +318,28 @@ export const registerAdminRoutes = (context: AppContext) => {
         return;
       }
 
-      const rows = await db.withConnection(async (connection) => {
-        return (await connection.query(
-          `
-          SELECT
-            o.order_no,
-            o.total_amount,
-            o.status,
-            o.created_at,
-            o.paid_at,
-            u.username
-          FROM ${tableNames.orderTable} o
-          INNER JOIN ${tableNames.userTable} u ON o.user_id = u.id
-          ORDER BY o.created_at DESC
-        `,
-        )) as Array<{
-          order_no: string;
-          total_amount: string | number;
-          status: string;
-          created_at: Date | string;
-          paid_at: Date | string | null;
-          username: string;
-        }>;
+      const rows = await prisma.order.findMany({
+        include: {
+          user: {
+            select: {
+              username: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
       });
 
       res.json({
         total: rows.length,
         items: rows.map((row) => ({
-          orderNo: row.order_no,
-          username: row.username,
-          totalAmount: helpers.toNumber(row.total_amount),
+          orderNo: row.orderNo,
+          username: row.user.username,
+          totalAmount: helpers.toNumber(row.totalAmount),
           status: row.status,
-          createdAt: helpers.formatTimestamp(row.created_at),
-          paidAt: helpers.formatNullableTimestamp(row.paid_at),
+          createdAt: helpers.formatTimestamp(row.createdAt),
+          paidAt: helpers.formatNullableTimestamp(row.paidAt),
         })),
       });
     } catch (error) {
@@ -336,24 +359,27 @@ export const registerAdminRoutes = (context: AppContext) => {
         return;
       }
 
-      const params: string[] = [];
-      const whereClause =
-        keyword === ''
-          ? ''
-          : (() => {
-              params.push(`%${keyword}%`);
-              return ' WHERE username LIKE ?';
-            })();
-      const rows = await db.withConnection(async (connection) => {
-        return (await connection.query(
-          `
-          SELECT id, username, nickname, phone, balance, is_admin, created_at
-          FROM ${tableNames.userTable}
-          ${whereClause}
-          ORDER BY id
-        `,
-          params,
-        )) as any[];
+      const rows = await prisma.user.findMany({
+        where:
+          keyword === ''
+            ? undefined
+            : {
+                username: {
+                  contains: keyword,
+                },
+              },
+        select: {
+          id: true,
+          username: true,
+          nickname: true,
+          phone: true,
+          balance: true,
+          isAdmin: true,
+          createdAt: true,
+        },
+        orderBy: {
+          id: 'asc',
+        },
       });
 
       res.json({
@@ -385,6 +411,7 @@ export const registerAdminRoutes = (context: AppContext) => {
       }
       throw error;
     }
+
     const hasNickname = payload.nickname !== undefined;
     const hasPhone = payload.phone !== undefined;
     const hasBalance = payload.balance !== undefined;
@@ -401,35 +428,32 @@ export const registerAdminRoutes = (context: AppContext) => {
         return;
       }
 
-      const updates: string[] = [];
-      const params: Array<string | number | null> = [];
+      const data: {
+        nickname?: string | null;
+        phone?: string | null;
+        balance?: number;
+        isAdmin?: boolean;
+      } = {};
       if (hasNickname) {
-        updates.push('nickname = ?');
-        params.push(nickname);
+        data.nickname = nickname;
       }
       if (hasPhone) {
-        updates.push('phone = ?');
-        params.push(phone);
+        data.phone = phone;
       }
       if (hasBalance) {
-        updates.push('balance = ?');
-        params.push(balance);
+        data.balance = balance;
       }
       if (hasIsAdmin) {
-        updates.push('is_admin = ?');
-        params.push(isAdmin ? 1 : 0);
+        data.isAdmin = isAdmin;
       }
-      params.push(userId);
 
-      await db.withConnection(async (connection) => {
-        const result = await connection.query(
-          `UPDATE ${tableNames.userTable} SET ${updates.join(', ')} WHERE id = ?`,
-          params,
-        );
-        if ((result as { affectedRows?: number }).affectedRows === 0) {
-          throw new ApiError(404, '用户不存在');
-        }
+      const updatedUser = await prisma.user.updateMany({
+        where: { id: BigInt(userId) },
+        data,
       });
+      if (updatedUser.count === 0) {
+        throw new ApiError(404, '用户不存在');
+      }
 
       await db.appendSystemLogSafely({
         level: 'INFO',
@@ -463,6 +487,7 @@ export const registerAdminRoutes = (context: AppContext) => {
       }
       throw error;
     }
+
     const normalizedLimit = query.limit;
 
     try {
@@ -472,16 +497,11 @@ export const registerAdminRoutes = (context: AppContext) => {
         return;
       }
 
-      const rows = await db.withConnection(async (connection) => {
-        return (await connection.query(
-          `
-          SELECT id, level, module, action, message, actor_user_id, created_at
-          FROM ${tableNames.systemLogTable}
-          ORDER BY id DESC
-          LIMIT ?
-        `,
-          [normalizedLimit],
-        )) as any[];
+      const rows = await prisma.systemLog.findMany({
+        orderBy: {
+          id: 'desc',
+        },
+        take: normalizedLimit,
       });
 
       res.json({

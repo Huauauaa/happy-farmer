@@ -3,7 +3,7 @@
 一个基于 pnpm workspace 的前后端分离示例项目，包含：
 
 - `apps/frontend`：React + TypeScript + Vite + Ant Design + Tailwind CSS
-- `apps/backend`：Express + TypeScript
+- `apps/backend`：Express + TypeScript + Prisma ORM
 
 前端通过 Vite 开发代理访问后端接口，当前内置了一个健康检查接口用于联调验证。
 
@@ -13,6 +13,7 @@
 .
 ├── apps
 │   ├── backend
+│   │   ├── prisma/schema.prisma
 │   │   ├── src/index.ts
 │   │   └── package.json
 │   └── frontend
@@ -97,7 +98,7 @@ docker compose logs -f
 
 - 前端容器使用 Nginx 托管构建产物，并支持 SPA 路由刷新
 - 前端的 `/api/*` 请求会在容器内转发到 `backend:3001`
-- 后端容器会通过 `DB_JDBC_URL` 连接到 Compose 内的 `db` 服务
+- 后端容器会通过 `DATABASE_URL` 连接到 Compose 内的 `db` 服务
 - 当前仓库未内置商品初始化 SQL，首次部署后如需完整业务数据，请自行导入商品与分类数据
 
 ## 本地开发
@@ -120,42 +121,37 @@ pnpm dev:frontend
 pnpm dev:backend
 ```
 
-## 数据库配置（MariaDB）
+## 数据库配置（MariaDB + Prisma）
 
-后端商品查询默认使用 MariaDB，默认 JDBC 连接串为：
+后端通过 Prisma 连接 MariaDB，默认连接串示例：
 
 ```text
-jdbc:mariadb://localhost:3306/farmer?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8
+mysql://root:root@localhost:3306/farmer?connection_limit=5
 ```
 
 建议在仓库根目录创建 `.env` 并写入数据库配置，示例：
 
 ```dotenv
-DB_JDBC_URL=jdbc:mariadb://localhost:3306/farmer?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8
-DB_USER=root
-DB_PASSWORD=
+DATABASE_URL=mysql://root:root@localhost:3306/farmer?connection_limit=5
 DB_CONNECTION_LIMIT=5
 ```
 
-后端启动时会自动尝试读取 `.env`（当前工作目录、`apps/backend/.env`、仓库根目录 `.env`）。
+后端启动时会自动尝试读取 `.env`（当前工作目录、`apps/backend/.env`、仓库根目录 `.env`），并在启动前执行 Prisma `db push` 以同步表结构。
 
 可通过以下环境变量覆盖：
 
-- `DB_JDBC_URL`：JDBC 连接串（默认值如上）
-- `DB_USER`：数据库用户名（默认 `root`）
-- `DB_PASSWORD`：数据库密码（默认空字符串）
-- `PRODUCT_TABLE`：商品表名（默认 `products`）
-- `CATEGORY_TABLE`：商品分类表名（默认 `product_categories`）
-- `CART_TABLE`：购物车表名（默认 `cart_items`）
-- `ORDER_TABLE`：订单表名（默认 `orders`）
-- `ORDER_ITEM_TABLE`：订单明细表名（默认 `order_items`）
-- `SYSTEM_LOG_TABLE`：系统日志表名（默认 `system_logs`）
-- `USER_TABLE`：用户表名（默认 `users`）
-- `USER_SESSION_TABLE`：登录会话表名（默认 `user_sessions`）
+- `DATABASE_URL`：Prisma 使用的 MariaDB 连接串
+- `DB_CONNECTION_LIMIT`：数据库连接数上限（会在兼容旧配置时注入到连接串）
 - `ADMIN_USERNAME`：默认管理员账号（默认 `admin`）
 - `ADMIN_PASSWORD`：默认管理员密码（默认 `admin123456`）
 
-示例表结构（供搜索与详情接口使用）：
+为了兼容旧部署方式，后端仍然支持通过以下旧变量自动推导 `DATABASE_URL`：
+
+- `DB_JDBC_URL`
+- `DB_USER`
+- `DB_PASSWORD`
+
+Prisma Schema 位于 `apps/backend/prisma/schema.prisma`，默认表结构与现有业务表保持一致，例如商品表：
 
 ```sql
 CREATE TABLE products (

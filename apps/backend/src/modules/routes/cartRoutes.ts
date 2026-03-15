@@ -1,7 +1,7 @@
 import type { AppContext } from '../AppContext.js';
 
 export const registerCartRoutes = (context: AppContext) => {
-  const { app, tableNames, db, auth, schemas, helpers, queries, ApiError } = context;
+  const { app, prisma, auth, schemas, helpers, queries, ApiError } = context;
 
   app.get('/api/cart', async (req, res) => {
     try {
@@ -37,6 +37,7 @@ export const registerCartRoutes = (context: AppContext) => {
       }
       throw error;
     }
+
     const { productId, quantity } = payload;
 
     try {
@@ -46,44 +47,59 @@ export const registerCartRoutes = (context: AppContext) => {
         return;
       }
 
-      await db.withConnection(async (connection) => {
-        const productRows = (await connection.query(
-          `SELECT id, stock FROM ${tableNames.productTable} WHERE id = ? LIMIT 1`,
-          [productId],
-        )) as Array<{ id: string; stock: string | number }>;
-        const product = productRows[0];
-        if (!product) {
-          throw new ApiError(404, '商品不存在');
-        }
-
-        const stock = helpers.toNumber(product.stock);
-        if (quantity > stock) {
-          throw new ApiError(400, '加入数量超过库存');
-        }
-
-        const cartRows = (await connection.query(
-          `SELECT quantity FROM ${tableNames.cartTable} WHERE user_id = ? AND product_id = ? LIMIT 1`,
-          [authResult.user.id, productId],
-        )) as Array<{ quantity: string | number }>;
-
-        if (cartRows.length === 0) {
-          await connection.query(
-            `INSERT INTO ${tableNames.cartTable} (user_id, product_id, quantity) VALUES (?, ?, ?)`,
-            [authResult.user.id, productId, quantity],
-          );
-          return;
-        }
-
-        const nextQuantity = helpers.toNumber(cartRows[0].quantity) + quantity;
-        if (nextQuantity > stock) {
-          throw new ApiError(400, '加入数量超过库存');
-        }
-
-        await connection.query(
-          `UPDATE ${tableNames.cartTable} SET quantity = ? WHERE user_id = ? AND product_id = ?`,
-          [nextQuantity, authResult.user.id, productId],
-        );
+      const userId = BigInt(authResult.user.id);
+      const product = await prisma.product.findUnique({
+        where: { id: productId },
+        select: {
+          id: true,
+          stock: true,
+        },
       });
+      if (!product) {
+        throw new ApiError(404, '商品不存在');
+      }
+      if (quantity > product.stock) {
+        throw new ApiError(400, '加入数量超过库存');
+      }
+
+      const existingCartItem = await prisma.cartItem.findUnique({
+        where: {
+          userId_productId: {
+            userId,
+            productId,
+          },
+        },
+        select: {
+          quantity: true,
+        },
+      });
+
+      if (!existingCartItem) {
+        await prisma.cartItem.create({
+          data: {
+            userId,
+            productId,
+            quantity,
+          },
+        });
+      } else {
+        const nextQuantity = existingCartItem.quantity + quantity;
+        if (nextQuantity > product.stock) {
+          throw new ApiError(400, '加入数量超过库存');
+        }
+
+        await prisma.cartItem.update({
+          where: {
+            userId_productId: {
+              userId,
+              productId,
+            },
+          },
+          data: {
+            quantity: nextQuantity,
+          },
+        });
+      }
 
       res.status(201).json({ message: '已加入购物车' });
     } catch (error) {
@@ -110,6 +126,7 @@ export const registerCartRoutes = (context: AppContext) => {
       }
       throw error;
     }
+
     const { quantity } = payload;
 
     try {
@@ -119,27 +136,31 @@ export const registerCartRoutes = (context: AppContext) => {
         return;
       }
 
-      await db.withConnection(async (connection) => {
-        const productRows = (await connection.query(
-          `SELECT stock FROM ${tableNames.productTable} WHERE id = ? LIMIT 1`,
-          [productId],
-        )) as Array<{ stock: string | number }>;
-        const product = productRows[0];
-        if (!product) {
-          throw new ApiError(404, '商品不存在');
-        }
-        if (quantity > helpers.toNumber(product.stock)) {
-          throw new ApiError(400, '数量超过库存');
-        }
-
-        const result = await connection.query(
-          `UPDATE ${tableNames.cartTable} SET quantity = ? WHERE user_id = ? AND product_id = ?`,
-          [quantity, authResult.user.id, productId],
-        );
-        if ((result as { affectedRows?: number }).affectedRows === 0) {
-          throw new ApiError(404, '购物车中不存在该商品');
-        }
+      const product = await prisma.product.findUnique({
+        where: { id: productId },
+        select: {
+          stock: true,
+        },
       });
+      if (!product) {
+        throw new ApiError(404, '商品不存在');
+      }
+      if (quantity > product.stock) {
+        throw new ApiError(400, '数量超过库存');
+      }
+
+      const updatedCartItem = await prisma.cartItem.updateMany({
+        where: {
+          userId: BigInt(authResult.user.id),
+          productId,
+        },
+        data: {
+          quantity,
+        },
+      });
+      if (updatedCartItem.count === 0) {
+        throw new ApiError(404, '购物车中不存在该商品');
+      }
 
       res.json({ message: '购物车数量更新成功' });
     } catch (error) {
@@ -164,11 +185,11 @@ export const registerCartRoutes = (context: AppContext) => {
         return;
       }
 
-      await db.withConnection(async (connection) => {
-        await connection.query(`DELETE FROM ${tableNames.cartTable} WHERE user_id = ? AND product_id = ?`, [
-          authResult.user.id,
+      await prisma.cartItem.deleteMany({
+        where: {
+          userId: BigInt(authResult.user.id),
           productId,
-        ]);
+        },
       });
 
       res.json({ message: '已从购物车移除' });

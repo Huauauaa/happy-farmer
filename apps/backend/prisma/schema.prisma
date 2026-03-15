@@ -1,0 +1,117 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id          String     @id @db.VarChar(64)
+  name        String     @unique @db.VarChar(255)
+  category    String     @db.VarChar(100)
+  price       Decimal    @db.Decimal(10, 2)
+  stock       Int
+  description String     @db.Text
+  cartItems   CartItem[]
+
+  @@map("products")
+}
+
+model ProductCategory {
+  id        BigInt   @id @default(autoincrement()) @db.BigInt
+  name      String   @unique @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("product_categories")
+}
+
+model User {
+  id           BigInt        @id @default(autoincrement()) @db.BigInt
+  username     String        @unique @db.VarChar(64)
+  passwordHash String        @map("password_hash") @db.Char(128)
+  passwordSalt String        @map("password_salt") @db.Char(32)
+  nickname     String?       @db.VarChar(128)
+  phone        String?       @db.VarChar(32)
+  balance      Decimal       @default(0) @db.Decimal(10, 2)
+  isAdmin      Boolean       @default(false) @map("is_admin")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  sessions     UserSession[]
+  cartItems    CartItem[]
+  orders       Order[]
+
+  @@map("users")
+}
+
+model UserSession {
+  token     String   @id @db.Char(64)
+  userId    BigInt   @map("user_id") @db.BigInt
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_user_sessions_user_id")
+  @@index([expiresAt], map: "idx_user_sessions_expires_at")
+  @@map("user_sessions")
+}
+
+model CartItem {
+  id        BigInt   @id @default(autoincrement()) @db.BigInt
+  userId    BigInt   @map("user_id") @db.BigInt
+  productId String   @map("product_id") @db.VarChar(64)
+  quantity  Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId], map: "uniq_cart_user_product")
+  @@index([userId], map: "idx_cart_user_id")
+  @@map("cart_items")
+}
+
+model Order {
+  id          BigInt      @id @default(autoincrement()) @db.BigInt
+  orderNo     String      @unique @map("order_no") @db.VarChar(40)
+  userId      BigInt      @map("user_id") @db.BigInt
+  totalAmount Decimal     @map("total_amount") @db.Decimal(10, 2)
+  status      String      @db.VarChar(20)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  paidAt      DateTime?   @map("paid_at")
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items       OrderItem[]
+
+  @@index([userId], map: "idx_orders_user_id")
+  @@map("orders")
+}
+
+model OrderItem {
+  id          BigInt   @id @default(autoincrement()) @db.BigInt
+  orderId     BigInt   @map("order_id") @db.BigInt
+  productId   String   @map("product_id") @db.VarChar(64)
+  productName String   @map("product_name") @db.VarChar(255)
+  category    String   @db.VarChar(100)
+  price       Decimal  @db.Decimal(10, 2)
+  quantity    Int
+  subtotal    Decimal  @db.Decimal(10, 2)
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId], map: "idx_order_items_order_id")
+  @@map("order_items")
+}
+
+model SystemLog {
+  id          BigInt   @id @default(autoincrement()) @db.BigInt
+  level       String   @db.VarChar(20)
+  module      String   @db.VarChar(50)
+  action      String   @db.VarChar(100)
+  message     String   @db.VarChar(500)
+  actorUserId BigInt?  @map("actor_user_id") @db.BigInt
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt], map: "idx_system_logs_created_at")
+  @@index([actorUserId], map: "idx_system_logs_actor_user_id")
+  @@map("system_logs")
+}

@@ -1,7 +1,7 @@
 import type { AppContext } from '../AppContext.js';
 
 export const registerUserRoutes = (context: AppContext) => {
-  const { app, tableNames, db, auth, schemas, helpers, mappers } = context;
+  const { app, prisma, auth, schemas, helpers } = context;
 
   app.get('/api/users/me', async (req, res) => {
     try {
@@ -11,7 +11,7 @@ export const registerUserRoutes = (context: AppContext) => {
         return;
       }
 
-      res.json({ user: mappers.toUserPublic(authResult.user) });
+      res.json({ user: authResult.user });
     } catch (error) {
       res.status(500).json({
         message: '获取用户信息失败',
@@ -31,6 +31,7 @@ export const registerUserRoutes = (context: AppContext) => {
       }
       throw error;
     }
+
     const hasNickname = payload.nickname !== undefined;
     const hasPhone = payload.phone !== undefined;
     const nickname = hasNickname ? helpers.parseWithSchema(schemas.nullableNicknameSchema, payload.nickname) : null;
@@ -43,20 +44,20 @@ export const registerUserRoutes = (context: AppContext) => {
         return;
       }
 
-      const updates: string[] = [];
-      const params: Array<string | number | null> = [];
+      const data: {
+        nickname?: string | null;
+        phone?: string | null;
+      } = {};
       if (hasNickname) {
-        updates.push('nickname = ?');
-        params.push(nickname);
+        data.nickname = nickname;
       }
       if (hasPhone) {
-        updates.push('phone = ?');
-        params.push(phone);
+        data.phone = phone;
       }
-      params.push(authResult.user.id);
 
-      await db.withConnection(async (connection) => {
-        await connection.query(`UPDATE ${tableNames.userTable} SET ${updates.join(', ')} WHERE id = ?`, params);
+      await prisma.user.update({
+        where: { id: BigInt(authResult.user.id) },
+        data,
       });
 
       const refreshedUser = await auth.findUserByToken(authResult.token);
@@ -67,7 +68,7 @@ export const registerUserRoutes = (context: AppContext) => {
 
       res.json({
         message: '个人信息更新成功',
-        user: mappers.toUserPublic(refreshedUser),
+        user: refreshedUser,
       });
     } catch (error) {
       res.status(500).json({
@@ -88,6 +89,7 @@ export const registerUserRoutes = (context: AppContext) => {
       }
       throw error;
     }
+
     const { currentPassword, newPassword } = payload;
 
     try {
@@ -97,30 +99,38 @@ export const registerUserRoutes = (context: AppContext) => {
         return;
       }
 
-      const userRows = await db.withConnection(async (connection) => {
-        return (await connection.query(
-          `SELECT id, password_hash, password_salt FROM ${tableNames.userTable} WHERE id = ? LIMIT 1`,
-          [authResult.user.id],
-        )) as Array<{ id: number; password_hash: string; password_salt: string }>;
+      const user = await prisma.user.findUnique({
+        where: { id: BigInt(authResult.user.id) },
+        select: {
+          id: true,
+          passwordHash: true,
+          passwordSalt: true,
+        },
       });
 
-      const user = userRows[0];
-      if (!user || !helpers.verifyPassword(currentPassword, user.password_salt, user.password_hash)) {
+      if (!user || !helpers.verifyPassword(currentPassword, user.passwordSalt, user.passwordHash)) {
         res.status(400).json({ message: '当前密码错误' });
         return;
       }
 
       const { hash, salt } = helpers.hashPassword(newPassword);
-      await db.withConnection(async (connection) => {
-        await connection.query(
-          `UPDATE ${tableNames.userTable} SET password_hash = ?, password_salt = ? WHERE id = ?`,
-          [hash, salt, authResult.user.id],
-        );
-        await connection.query(`DELETE FROM ${tableNames.sessionTable} WHERE user_id = ? AND token <> ?`, [
-          authResult.user.id,
-          authResult.token,
-        ]);
-      });
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: user.id },
+          data: {
+            passwordHash: hash,
+            passwordSalt: salt,
+          },
+        }),
+        prisma.userSession.deleteMany({
+          where: {
+            userId: user.id,
+            token: {
+              not: authResult.token,
+            },
+          },
+        }),
+      ]);
 
       res.json({ message: '密码修改成功' });
     } catch (error) {

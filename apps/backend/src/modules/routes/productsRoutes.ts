@@ -1,13 +1,12 @@
+import type { Prisma } from '@prisma/client';
 import type { AppContext } from '../AppContext.js';
 
 export const registerProductsRoutes = (context: AppContext) => {
-  const { app, serviceName, db, helpers, mappers, tableNames } = context;
+  const { app, prisma, serviceName, helpers, mappers } = context;
 
   app.get('/api/health', async (_req, res) => {
     try {
-      await db.withConnection(async (connection) => {
-        await connection.query('SELECT 1');
-      });
+      await prisma.$queryRaw`SELECT 1`;
       res.json({ ok: true, service: serviceName, database: 'up' });
     } catch (error) {
       res.status(503).json({
@@ -22,25 +21,32 @@ export const registerProductsRoutes = (context: AppContext) => {
   app.get('/api/products', async (req, res) => {
     const keyword = helpers.getQueryText(req.query.keyword);
     const category = helpers.getQueryText(req.query.category);
-    const conditions: string[] = [];
-    const params: string[] = [];
 
+    const where: Prisma.ProductWhereInput = {};
     if (keyword !== '') {
-      conditions.push('name LIKE ?');
-      params.push(`%${keyword}%`);
+      where.name = {
+        contains: keyword,
+      };
     }
     if (category !== '') {
-      conditions.push('category = ?');
-      params.push(category);
+      where.category = category;
     }
 
-    const whereClause = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
-    const querySql = `SELECT id, name, category, price, stock FROM ${tableNames.productTable}${whereClause} ORDER BY id`;
-
     try {
-      const rows = await db.withConnection(async (connection) => {
-        return (await connection.query(querySql, params)) as any[];
+      const rows = await prisma.product.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          category: true,
+          price: true,
+          stock: true,
+        },
+        orderBy: {
+          id: 'asc',
+        },
       });
+
       const items = rows.map((row) => mappers.toProductSummary(row));
       res.json({
         keyword,
@@ -58,21 +64,36 @@ export const registerProductsRoutes = (context: AppContext) => {
 
   app.get('/api/product-categories', async (_req, res) => {
     try {
-      const rows = await db.withConnection(async (connection) => {
-        return (await connection.query(
-          `
-          SELECT DISTINCT name AS category FROM ${tableNames.categoryTable}
-          UNION
-          SELECT DISTINCT category FROM ${tableNames.productTable}
-          WHERE category IS NOT NULL AND category <> ''
-          ORDER BY category
-        `,
-        )) as Array<{ category: string }>;
-      });
+      const [categoryRows, productCategoryRows] = await Promise.all([
+        prisma.productCategory.findMany({
+          select: {
+            name: true,
+          },
+          orderBy: {
+            name: 'asc',
+          },
+        }),
+        prisma.product.findMany({
+          where: {
+            category: {
+              not: '',
+            },
+          },
+          distinct: ['category'],
+          select: {
+            category: true,
+          },
+        }),
+      ]);
 
-      res.json({
-        items: rows.map((row) => row.category),
-      });
+      const items = Array.from(
+        new Set([
+          ...categoryRows.map((row) => row.name),
+          ...productCategoryRows.map((row) => row.category),
+        ]),
+      ).sort((left, right) => left.localeCompare(right, 'zh-CN'));
+
+      res.json({ items });
     } catch (error) {
       res.status(500).json({
         message: '分类查询失败',
@@ -85,14 +106,18 @@ export const registerProductsRoutes = (context: AppContext) => {
     const { id } = req.params;
 
     try {
-      const rows = await db.withConnection(async (connection) => {
-        return (await connection.query(
-          `SELECT id, name, category, price, stock, description FROM ${tableNames.productTable} WHERE id = ? LIMIT 1`,
-          [id],
-        )) as any[];
+      const row = await prisma.product.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          name: true,
+          category: true,
+          price: true,
+          stock: true,
+          description: true,
+        },
       });
 
-      const row = rows[0];
       if (!row) {
         res.status(404).json({ message: '商品不存在' });
         return;

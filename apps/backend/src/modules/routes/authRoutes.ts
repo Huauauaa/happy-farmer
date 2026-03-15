@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type { AppContext } from '../AppContext.js';
 
 export const registerAuthRoutes = (context: AppContext) => {
-  const { app, tableNames, db, auth, schemas, helpers, mappers, sessionExpireDays } = context;
+  const { app, prisma, db, schemas, helpers, mappers, sessionExpireDays } = context;
 
   app.post('/api/auth/register', async (req, res) => {
     let payload: any;
@@ -16,31 +16,28 @@ export const registerAuthRoutes = (context: AppContext) => {
       }
       throw error;
     }
+
     const { username, password, nickname, phone } = payload;
 
     try {
-      const existingUsers = await db.withConnection(async (connection) => {
-        return (await connection.query(`SELECT id FROM ${tableNames.userTable} WHERE username = ? LIMIT 1`, [
-          username,
-        ])) as Array<{ id: number }>;
+      const existingUser = await prisma.user.findUnique({
+        where: { username },
+        select: { id: true },
       });
-
-      if (existingUsers.length > 0) {
+      if (existingUser) {
         res.status(409).json({ message: '用户名已存在' });
         return;
       }
 
       const { hash, salt } = helpers.hashPassword(password);
-
-      await db.withConnection(async (connection) => {
-        await connection.query(
-          `
-          INSERT INTO ${tableNames.userTable}
-          (username, password_hash, password_salt, nickname, phone)
-          VALUES (?, ?, ?, ?, ?)
-        `,
-          [username, hash, salt, nickname, phone],
-        );
+      await prisma.user.create({
+        data: {
+          username,
+          passwordHash: hash,
+          passwordSalt: salt,
+          nickname,
+          phone,
+        },
       });
 
       await db.appendSystemLogSafely({
@@ -74,32 +71,26 @@ export const registerAuthRoutes = (context: AppContext) => {
       }
       throw error;
     }
+
     const { username, password } = payload;
 
     try {
-      const userRows = await db.withConnection(async (connection) => {
-        return (await connection.query(
-          `
-          SELECT
-            id,
-            username,
-            nickname,
-            phone,
-            balance,
-            is_admin,
-            created_at,
-            password_hash,
-            password_salt
-          FROM ${tableNames.userTable}
-          WHERE username = ?
-          LIMIT 1
-        `,
-          [username],
-        )) as any[];
+      const user = await prisma.user.findUnique({
+        where: { username },
+        select: {
+          id: true,
+          username: true,
+          nickname: true,
+          phone: true,
+          balance: true,
+          isAdmin: true,
+          createdAt: true,
+          passwordHash: true,
+          passwordSalt: true,
+        },
       });
 
-      const user = userRows[0];
-      if (!user || !helpers.verifyPassword(password, user.password_salt, user.password_hash)) {
+      if (!user || !helpers.verifyPassword(password, user.passwordSalt, user.passwordHash)) {
         res.status(401).json({ message: '账号或密码错误' });
         return;
       }
@@ -107,23 +98,30 @@ export const registerAuthRoutes = (context: AppContext) => {
       const token = randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + sessionExpireDays * 24 * 60 * 60 * 1000);
 
-      await db.withConnection(async (connection) => {
-        await connection.query(
-          `INSERT INTO ${tableNames.sessionTable} (token, user_id, expires_at) VALUES (?, ?, ?)`,
-          [token, user.id, expiresAt],
-        );
-        await connection.query(
-          `DELETE FROM ${tableNames.sessionTable} WHERE user_id = ? AND expires_at <= NOW()`,
-          [user.id],
-        );
-      });
+      await prisma.$transaction([
+        prisma.userSession.create({
+          data: {
+            token,
+            userId: user.id,
+            expiresAt,
+          },
+        }),
+        prisma.userSession.deleteMany({
+          where: {
+            userId: user.id,
+            expiresAt: {
+              lte: new Date(),
+            },
+          },
+        }),
+      ]);
 
       await db.appendSystemLogSafely({
         level: 'INFO',
         module: 'auth',
         action: 'login',
         message: `用户登录成功: ${user.username}`,
-        actorUserId: user.id,
+        actorUserId: Number(user.id),
       });
 
       res.json({
@@ -147,8 +145,8 @@ export const registerAuthRoutes = (context: AppContext) => {
         return;
       }
 
-      await db.withConnection(async (connection) => {
-        await connection.query(`DELETE FROM ${tableNames.sessionTable} WHERE token = ?`, [token]);
+      await prisma.userSession.deleteMany({
+        where: { token },
       });
 
       await db.appendSystemLogSafely({

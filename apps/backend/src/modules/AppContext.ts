@@ -1,10 +1,14 @@
+import type { PrismaClient } from '@prisma/client';
 import type { Express } from 'express';
-import type { PoolConnection } from 'mariadb';
 
 export type AuthenticatedUser = {
-  id: string | number;
+  id: string;
   username: string;
-  is_admin: number;
+  nickname: string | null;
+  phone: string | null;
+  balance: number;
+  isAdmin: boolean;
+  createdAt: string;
   [key: string]: unknown;
 };
 
@@ -23,24 +27,11 @@ export type LogPayload = {
 
 export type AppContext = {
   app: Express;
+  prisma: PrismaClient;
   serviceName: string;
-  tableNames: {
-    productTable: string;
-    categoryTable: string;
-    cartTable: string;
-    orderTable: string;
-    orderItemTable: string;
-    systemLogTable: string;
-    userTable: string;
-    sessionTable: string;
-  };
   sessionExpireDays: number;
-  pool: {
-    getConnection: () => Promise<PoolConnection>;
-  };
   ApiError: new (status: number, message: string) => Error & { status: number };
   db: {
-    withConnection: <T>(handler: (connection: PoolConnection) => Promise<T>) => Promise<T>;
     appendSystemLogSafely: (params: LogPayload) => Promise<void>;
   };
   auth: {
@@ -68,7 +59,7 @@ export type AppContext = {
     readErrorMessage: (error: unknown) => string;
     getQueryText: (value: unknown) => string;
     getBearerToken: (header: string | undefined) => string | null;
-    toNumber: (value: string | number) => number;
+    toNumber: (value: unknown) => number;
     formatTimestamp: (value: string | Date) => string;
     formatNullableTimestamp: (value: Date | string | null) => string | null;
     toPositiveInt: (value: unknown) => number | null;
@@ -82,7 +73,7 @@ export type AppContext = {
     toUserPublic: (row: any) => any;
     toSystemLogItem: (row: any) => any;
     toOrderItem: (row: any) => any;
-    toUserOrder: (order: any, items: any[]) => any;
+    toUserOrder: (order: any) => any;
   };
   queries: {
     fetchCartItems: (userId: string | number) => Promise<any[]>;

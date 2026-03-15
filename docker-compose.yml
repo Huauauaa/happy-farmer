@@ -27,9 +27,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: 3001
-      DB_JDBC_URL: jdbc:mariadb://db:3306/${MARIADB_DATABASE:-farmer}?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8
-      DB_USER: root
-      DB_PASSWORD: ${MARIADB_ROOT_PASSWORD:-root}
+      DATABASE_URL: mysql://root:${MARIADB_ROOT_PASSWORD:-root}@db:3306/${MARIADB_DATABASE:-farmer}?connection_limit=${DB_CONNECTION_LIMIT:-5}
       DB_CONNECTION_LIMIT: ${DB_CONNECTION_LIMIT:-5}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123456}

@@ -1,7 +1,8 @@
+import { Prisma } from '@prisma/client';
 import type { AppContext } from '../AppContext.js';
 
 export const registerOrderRoutes = (context: AppContext) => {
-  const { app, tableNames, pool, db, auth, helpers, ApiError, mappers, queries } = context;
+  const { app, prisma, db, auth, helpers, ApiError, queries } = context;
 
   app.post('/api/orders/submit', async (req, res) => {
     try {
@@ -11,112 +12,84 @@ export const registerOrderRoutes = (context: AppContext) => {
         return;
       }
 
-      const connection = await pool.getConnection();
-      try {
-        await connection.beginTransaction();
-        const cartRows = (await connection.query(
-          `
-          SELECT c.product_id, c.quantity, p.name, p.category, p.price, p.stock
-          FROM ${tableNames.cartTable} c
-          INNER JOIN ${tableNames.productTable} p ON p.id = c.product_id
-          WHERE c.user_id = ?
-          FOR UPDATE
-        `,
-          [authResult.user.id],
-        )) as any[];
-
-        if (cartRows.length === 0) {
-          throw new ApiError(400, '购物车为空，无法提交订单');
-        }
-
-        const orderNo = helpers.generateOrderNo();
-        let totalAmount = 0;
-        const orderItems: Array<{
-          productId: string;
-          productName: string;
-          category: string;
-          price: number;
-          quantity: number;
-          subtotal: number;
-        }> = [];
-
-        for (const row of cartRows) {
-          const quantity = helpers.toNumber(row.quantity);
-          const price = helpers.toNumber(row.price);
-          const stock = helpers.toNumber(row.stock);
-          if (quantity > stock) {
-            throw new ApiError(400, `${row.name} 库存不足`);
-          }
-          const subtotal = quantity * price;
-          totalAmount += subtotal;
-          orderItems.push({
-            productId: row.product_id,
-            productName: row.name,
-            category: row.category,
-            price,
-            quantity,
-            subtotal,
+      const userId = BigInt(authResult.user.id);
+      const orderResult = await prisma.$transaction(
+        async (tx) => {
+          const cartItems = await tx.cartItem.findMany({
+            where: { userId },
+            include: {
+              product: true,
+            },
+            orderBy: {
+              createdAt: 'desc',
+            },
           });
-        }
 
-        await connection.query(
-          `
-          INSERT INTO ${tableNames.orderTable} (order_no, user_id, total_amount, status)
-          VALUES (?, ?, ?, 'UNPAID')
-        `,
-          [orderNo, authResult.user.id, totalAmount],
-        );
-        const insertedOrderRows = (await connection.query(
-          `SELECT id FROM ${tableNames.orderTable} WHERE order_no = ? LIMIT 1`,
-          [orderNo],
-        )) as Array<{ id: string | number }>;
-        const insertedOrder = insertedOrderRows[0];
-        if (!insertedOrder) {
-          throw new ApiError(500, '订单创建失败');
-        }
+          if (cartItems.length === 0) {
+            throw new ApiError(400, '购物车为空，无法提交订单');
+          }
 
-        for (const item of orderItems) {
-          await connection.query(
-            `
-            INSERT INTO ${tableNames.orderItemTable}
-            (order_id, product_id, product_name, category, price, quantity, subtotal)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `,
-            [
-              insertedOrder.id,
-              item.productId,
-              item.productName,
-              item.category,
-              item.price,
-              item.quantity,
-              item.subtotal,
-            ],
-          );
-        }
+          const orderNo = helpers.generateOrderNo();
+          let totalAmount = 0;
+          const orderItems = cartItems.map((row) => {
+            if (row.quantity > row.product.stock) {
+              throw new ApiError(400, `${row.product.name} 库存不足`);
+            }
 
-        await connection.query(`DELETE FROM ${tableNames.cartTable} WHERE user_id = ?`, [authResult.user.id]);
-        await connection.commit();
+            const price = helpers.toNumber(row.product.price);
+            const subtotal = price * row.quantity;
+            totalAmount += subtotal;
+            return {
+              productId: row.productId,
+              productName: row.product.name,
+              category: row.product.category,
+              price,
+              quantity: row.quantity,
+              subtotal,
+            };
+          });
 
-        await db.appendSystemLogSafely({
-          level: 'INFO',
-          module: 'order',
-          action: 'submit',
-          message: `提交订单成功: ${orderNo}, 金额 ${totalAmount.toFixed(2)}`,
-          actorUserId: authResult.user.id,
-        });
+          await tx.order.create({
+            data: {
+              orderNo,
+              userId,
+              totalAmount,
+              status: 'UNPAID',
+              items: {
+                create: orderItems,
+              },
+            },
+          });
 
-        res.status(201).json({
-          message: '订单提交成功',
-          orderNo,
-          totalAmount,
-          status: 'UNPAID',
-        });
-      } catch (error) {
-        await connection.rollback();
-        throw error;
-      } finally {
-        connection.release();
-      }
+          await tx.cartItem.deleteMany({
+            where: { userId },
+          });
+
+          return {
+            orderNo,
+            totalAmount,
+            status: 'UNPAID',
+          };
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        },
+      );
+
+      await db.appendSystemLogSafely({
+        level: 'INFO',
+        module: 'order',
+        action: 'submit',
+        message: `提交订单成功: ${orderResult.orderNo}, 金额 ${orderResult.totalAmount.toFixed(2)}`,
+        actorUserId: authResult.user.id,
+      });
+
+      res.status(201).json({
+        message: '订单提交成功',
+        orderNo: orderResult.orderNo,
+        totalAmount: orderResult.totalAmount,
+        status: orderResult.status,
+      });
     } catch (error) {
       if (helpers.isApiError(error)) {
         res.status((error as { status: number }).status).json({ message: (error as Error).message });
@@ -138,95 +111,97 @@ export const registerOrderRoutes = (context: AppContext) => {
         return;
       }
 
-      const connection = await pool.getConnection();
-      try {
-        await connection.beginTransaction();
-
-        const orderRows = (await connection.query(
-          `
-          SELECT id, order_no, user_id, total_amount, status, created_at, paid_at
-          FROM ${tableNames.orderTable}
-          WHERE order_no = ? AND user_id = ?
-          LIMIT 1
-          FOR UPDATE
-        `,
-          [orderNo, authResult.user.id],
-        )) as any[];
-        const order = orderRows[0];
-        if (!order) {
-          throw new ApiError(404, '订单不存在');
-        }
-        if (order.status === 'PAID') {
-          throw new ApiError(400, '订单已支付');
-        }
-
-        const itemRows = (await connection.query(
-          `
-          SELECT order_id, product_id, product_name, category, price, quantity, subtotal
-          FROM ${tableNames.orderItemTable}
-          WHERE order_id = ?
-        `,
-          [order.id],
-        )) as any[];
-
-        for (const item of itemRows) {
-          const productRows = (await connection.query(
-            `SELECT stock FROM ${tableNames.productTable} WHERE id = ? LIMIT 1 FOR UPDATE`,
-            [item.product_id],
-          )) as Array<{ stock: string | number }>;
-          const product = productRows[0];
-          if (!product) {
-            throw new ApiError(400, `商品 ${item.product_name} 不存在`);
+      const userId = BigInt(authResult.user.id);
+      const paymentResult = await prisma.$transaction(
+        async (tx) => {
+          const order = await tx.order.findFirst({
+            where: {
+              orderNo,
+              userId,
+            },
+            include: {
+              items: {
+                orderBy: {
+                  id: 'asc',
+                },
+              },
+            },
+          });
+          if (!order) {
+            throw new ApiError(404, '订单不存在');
           }
-          if (helpers.toNumber(product.stock) < helpers.toNumber(item.quantity)) {
-            throw new ApiError(400, `${item.product_name} 库存不足，无法支付`);
+          if (order.status === 'PAID') {
+            throw new ApiError(400, '订单已支付');
           }
-        }
 
-        const userRows = (await connection.query(
-          `SELECT balance FROM ${tableNames.userTable} WHERE id = ? LIMIT 1 FOR UPDATE`,
-          [authResult.user.id],
-        )) as Array<{ balance: string | number }>;
-        const user = userRows[0];
-        if (!user) {
-          throw new ApiError(404, '用户不存在');
-        }
+          const totalAmount = helpers.toNumber(order.totalAmount);
+          const userUpdated = await tx.user.updateMany({
+            where: {
+              id: userId,
+              balance: {
+                gte: totalAmount,
+              },
+            },
+            data: {
+              balance: {
+                decrement: totalAmount,
+              },
+            },
+          });
+          if (userUpdated.count === 0) {
+            throw new ApiError(400, '账户余额不足，无法付款');
+          }
 
-        const totalAmount = helpers.toNumber(order.total_amount);
-        if (helpers.toNumber(user.balance) < totalAmount) {
-          throw new ApiError(400, '账户余额不足，无法付款');
-        }
+          for (const item of order.items) {
+            const productUpdated = await tx.product.updateMany({
+              where: {
+                id: item.productId,
+                stock: {
+                  gte: item.quantity,
+                },
+              },
+              data: {
+                stock: {
+                  decrement: item.quantity,
+                },
+              },
+            });
 
-        await connection.query(`UPDATE ${tableNames.userTable} SET balance = balance - ? WHERE id = ?`, [
-          totalAmount,
-          authResult.user.id,
-        ]);
-        for (const item of itemRows) {
-          await connection.query(`UPDATE ${tableNames.productTable} SET stock = stock - ? WHERE id = ?`, [
-            item.quantity,
-            item.product_id,
-          ]);
-        }
-        await connection.query(`UPDATE ${tableNames.orderTable} SET status = 'PAID', paid_at = NOW() WHERE id = ?`, [
-          order.id,
-        ]);
-        await connection.commit();
+            if (productUpdated.count === 0) {
+              throw new ApiError(400, `${item.productName} 库存不足，无法支付`);
+            }
+          }
 
-        await db.appendSystemLogSafely({
-          level: 'INFO',
-          module: 'order',
-          action: 'pay',
-          message: `订单支付成功: ${orderNo}, 金额 ${totalAmount.toFixed(2)}`,
-          actorUserId: authResult.user.id,
-        });
+          const orderUpdated = await tx.order.updateMany({
+            where: {
+              id: order.id,
+              status: 'UNPAID',
+            },
+            data: {
+              status: 'PAID',
+              paidAt: new Date(),
+            },
+          });
+          if (orderUpdated.count === 0) {
+            throw new ApiError(400, '订单已支付');
+          }
 
-        res.json({ message: '付款成功', orderNo });
-      } catch (error) {
-        await connection.rollback();
-        throw error;
-      } finally {
-        connection.release();
-      }
+          return { totalAmount };
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        },
+      );
+
+      await db.appendSystemLogSafely({
+        level: 'INFO',
+        module: 'order',
+        action: 'pay',
+        message: `订单支付成功: ${orderNo}, 金额 ${paymentResult.totalAmount.toFixed(2)}`,
+        actorUserId: authResult.user.id,
+      });
+
+      res.json({ message: '付款成功', orderNo });
     } catch (error) {
       if (helpers.isApiError(error)) {
         res.status((error as { status: number }).status).json({ message: (error as Error).message });
@@ -275,6 +250,7 @@ export const registerOrderRoutes = (context: AppContext) => {
         res.status(404).json({ message: '订单不存在' });
         return;
       }
+
       res.json(order);
     } catch (error) {
       res.status(500).json({
