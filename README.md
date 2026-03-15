@@ -449,6 +449,7 @@ pnpm build
 - `pnpm --filter @happy-farmer/backend dev`
 - `pnpm --filter @happy-farmer/backend build`
 - `pnpm --filter @happy-farmer/backend start`
+- `pnpm --filter @happy-farmer/backend test`
 
 ### 前端
 

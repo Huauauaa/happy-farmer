@@ -51,6 +51,9 @@ importers:
       typescript:
         specifier: ^5.9.2
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@22.19.15)(jsdom@28.1.0)(lightningcss@1.31.1)
 
   apps/frontend:
     dependencies:
