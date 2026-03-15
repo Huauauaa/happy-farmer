@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "nodemon --watch src --watch prisma --ext ts,prisma --exec \"pnpm prisma:push && pnpm build && node dist/index.js\"",
+    "dev": "nodemon --watch src --watch prisma --ignore src/generated --ignore dist --ext ts,prisma --exec \"pnpm prisma:push && pnpm build && node dist/index.js\"",
     "build": "pnpm prisma:generate && tsc -p tsconfig.json",
     "start": "pnpm prisma:push && node dist/index.js",
     "lint": "echo \"No lint configured for backend\"",

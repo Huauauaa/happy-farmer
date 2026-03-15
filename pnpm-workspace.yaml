@@ -1,2 +1,6 @@
 packages:
-  - 'apps/*'
+  - apps/*
+
+ignoredBuiltDependencies:
+  - '@prisma/engines'
+  - prisma
