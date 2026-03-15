@@ -9,7 +9,7 @@
     "start": "pnpm prisma:push && node dist/index.js",
     "lint": "echo \"No lint configured for backend\"",
     "prisma:generate": "node ./scripts/run-prisma-command.mjs generate",
-    "prisma:push": "node ./scripts/run-prisma-command.mjs db push --skip-generate"
+    "prisma:push": "node ./scripts/run-prisma-command.mjs db push"
   },
   "dependencies": {
     "@prisma/adapter-mariadb": "^7.5.0",
