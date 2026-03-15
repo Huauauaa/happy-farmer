@@ -1,10 +1,11 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 
-import { Prisma, PrismaClient } from '@prisma/client';
+import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import cors from 'cors';
 import express from 'express';
 import { z } from 'zod';
 import { ensureDatabaseUrl, loadBackendEnv } from './lib/databaseUrl.js';
+import { Prisma, PrismaClient } from './generated/prisma/client.js';
 import type { AppContext } from './modules/AppContext.js';
 import { registerAdminRoutes } from './modules/routes/adminRoutes.js';
 import { registerAuthRoutes } from './modules/routes/authRoutes.js';
@@ -45,7 +46,9 @@ if (!parsedEnv.success) {
 
 const env = parsedEnv.data;
 const app = express();
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  adapter: new PrismaMariaDb(databaseUrl),
+});
 
 app.use(cors());
 app.use(express.json());
@@ -110,7 +113,7 @@ type SystemLogItem = {
   createdAt: string;
 };
 
-const userPublicSelect = Prisma.validator<Prisma.UserSelect>()({
+const userPublicSelect = {
   id: true,
   username: true,
   nickname: true,
@@ -118,7 +121,7 @@ const userPublicSelect = Prisma.validator<Prisma.UserSelect>()({
   balance: true,
   isAdmin: true,
   createdAt: true,
-});
+} satisfies Prisma.UserSelect;
 
 type UserPublicRecord = Prisma.UserGetPayload<{ select: typeof userPublicSelect }>;
 
